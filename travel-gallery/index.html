@@ -339,6 +339,21 @@
     color: var(--ink-dim);
   }
 
+  .edit-btn {
+    background: none;
+    border: none;
+    color: var(--ink-dim);
+    font-size: 0.85em;
+    cursor: pointer;
+    opacity: 0.45;
+    padding: 0.2em 0.4em;
+    transition: opacity 0.3s, color 0.3s;
+    vertical-align: middle;
+  }
+  .edit-btn:hover { opacity: 1; color: var(--rose); }
+  .edit-btn[hidden] { display: none; }
+  .stat.editable { cursor: pointer; }
+
   .chapter-note {
     font-family: var(--hand);
     font-size: clamp(1.2rem, 3vw, 1.5rem);
@@ -1076,15 +1091,110 @@ lb.addEventListener("touchend", (e) => {
   });
 })();
 
-/* ---------- upload button (only when the server is running) ---------- */
+/* ---------- server mode: upload buttons + edit-in-place ---------- */
+let serverProtected = false;
 fetch("api/trips", { method: "GET" })
-  .then((r) => {
-    if (r.ok) {
-      document.getElementById("camBtn").hidden = false;
-      document.getElementById("addBtn").hidden = false;
-    }
+  .then((r) => r.ok ? r.json() : Promise.reject())
+  .then((d) => {
+    serverProtected = d.protected;
+    document.getElementById("camBtn").hidden = false;
+    document.getElementById("addBtn").hidden = false;
+    enableEditing();
   })
-  .catch(() => {}); // static hosting (no server) — upload buttons stay hidden
+  .catch(() => {}); // static hosting (no server) — extras stay hidden
+
+function editKey() {
+  if (!serverProtected) return "";
+  let k = localStorage.getItem("wanderlight-key");
+  if (!k) {
+    k = prompt("secret word? 🌙") || "";
+    localStorage.setItem("wanderlight-key", k);
+  }
+  return k;
+}
+
+async function sendEdit(body) {
+  const r = await fetch("api/edit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(editKey() ? { "X-Upload-Key": editKey() } : {}) },
+    body: JSON.stringify(body),
+  });
+  if (r.status === 401) {
+    localStorage.removeItem("wanderlight-key");
+    alert("wrong secret word — try again");
+    return false;
+  }
+  return r.ok;
+}
+
+function enableEditing() {
+  // rename trips & notes — a small pencil beside each chapter title
+  document.querySelectorAll(".chapter").forEach((ch) => {
+    const t = trips.find((x) => x.id === ch.dataset.id);
+    if (!t) return;
+    const btn = document.createElement("button");
+    btn.className = "edit-btn";
+    btn.title = "edit this journey";
+    btn.textContent = "✎";
+    btn.addEventListener("click", async () => {
+      const title = prompt("Journey title", t.title);
+      if (title === null) return;
+      const location = prompt("Location line (shown in pink)", t.location || "");
+      if (location === null) return;
+      const note = prompt("A little handwritten note (optional)", t.note || "");
+      if (note === null) return;
+      if (await sendEdit({ type: "trip", id: t.id, title, location, note })) {
+        t.title = title || t.title; t.location = location; t.note = note;
+        ch.querySelector("h2").textContent = t.title;
+        ch.querySelector(".where").textContent = t.location;
+        let noteEl = ch.querySelector(".chapter-note");
+        if (note && !noteEl) {
+          noteEl = document.createElement("p");
+          noteEl.className = "chapter-note";
+          ch.querySelector(".chapter-head").after(noteEl);
+        }
+        if (noteEl) { noteEl.textContent = note; if (!note) noteEl.remove(); }
+        const chip = filtersEl.querySelector(`.chip[data-id="${t.id}"]`);
+        if (chip) chip.textContent = t.title;
+      }
+    });
+    ch.querySelector(".chapter-head h2").after(btn);
+  });
+
+  // fix a caption from inside the lightbox
+  const capBtn = document.createElement("button");
+  capBtn.className = "edit-btn";
+  capBtn.title = "edit caption";
+  capBtn.textContent = "✎";
+  capBtn.addEventListener("click", async () => {
+    const p = allPhotos[current];
+    if (!p) return;
+    const caption = prompt("Caption", p.caption || "");
+    if (caption === null) return;
+    if (await sendEdit({ type: "photo", src: p.src, caption })) {
+      p.caption = caption;
+      lbCap.textContent = caption;
+      const tile = document.querySelectorAll(".tile")[current];
+      const cap = tile && tile.querySelector(".cap");
+      if (cap) cap.textContent = caption;
+    }
+  });
+  lbCap.after(capBtn);
+
+  // set your real anniversary by tapping "days of us"
+  const daysStat = document.getElementById("statDays").parentElement;
+  daysStat.classList.add("editable");
+  daysStat.title = "set our anniversary";
+  daysStat.addEventListener("click", async () => {
+    const date = prompt("Your anniversary (YYYY-MM-DD)", SINCE || "2023-06-01");
+    if (date === null) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return alert("format: YYYY-MM-DD");
+    if (await sendEdit({ type: "since", date })) {
+      const days = Math.max(0, Math.floor((Date.now() - new Date(date)) / 86400000));
+      document.getElementById("statDays").textContent = days.toLocaleString();
+    }
+  });
+}
 
 /* ---------- hearts easter egg ---------- */
 const HEARTS = ["💗", "✨", "🌸", "💫", "🩷", "⭐"];

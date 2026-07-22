@@ -74,9 +74,17 @@ async function saveManifest(m) {
 }
 
 // ---------- geocoding (same Nominatim flow as generate-manifest.js) ----------
+// Nominatim allows 1 request/second — chain misses through a throttle queue
 const geocache = new Map();
+let geoQueue = Promise.resolve();
 function reverseGeocode(lat, lon) {
   const key = `${lat.toFixed(2)},${lon.toFixed(2)}`;
+  if (geocache.has(key)) return Promise.resolve(geocache.get(key));
+  const run = geoQueue.then(() => geocodeNow(lat, lon, key));
+  geoQueue = run.then(() => new Promise((r) => setTimeout(r, 1100)));
+  return run;
+}
+function geocodeNow(lat, lon, key) {
   if (geocache.has(key)) return Promise.resolve(geocache.get(key));
   const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=10&accept-language=en`;
   return new Promise((resolve) => {
@@ -99,10 +107,32 @@ function reverseGeocode(lat, lon) {
 }
 
 // ---------- upload one photo buffer into a trip ----------
+const crypto = require("crypto");
 const slugify = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9äöüõå]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+const sha1 = (buf) => crypto.createHash("sha1").update(buf).digest("hex");
+
+function knownHashes(manifest) {
+  const set = new Set();
+  for (const t of manifest.trips) for (const p of t.photos) if (p.hash) set.add(p.hash);
+  return set;
+}
 
 async function addPhotos({ folder, files, caption, browserCoords }) {
   const manifest = await loadManifest();
+
+  // skip photos that are already in the universe (same bytes)
+  const seen = knownHashes(manifest);
+  const fresh = [];
+  let skipped = 0;
+  for (const f of files) {
+    const h = sha1(f.buffer);
+    if (seen.has(h)) { skipped++; continue; }
+    seen.add(h);
+    f._hash = h;
+    fresh.push(f);
+  }
+  if (!fresh.length) return { added: [], skipped, trip: folder };
+  files = fresh;
 
   const fm = folder.match(/^(\d{4})-(\d{2})\s+(.+)$/);
   const title = fm ? fm[3] : folder;
@@ -127,6 +157,7 @@ async function addPhotos({ folder, files, caption, browserCoords }) {
     const key = `photos/${folder}/${name}`;
 
     const photo = { key, caption: caption || base.replace(/-/g, " ") };
+    if (f._hash) photo.hash = f._hash;
 
     // EXIF from the buffer
     if (exifr) {
@@ -181,12 +212,25 @@ async function addPhotos({ folder, files, caption, browserCoords }) {
   manifest.trips.sort((a, b) => (b.sortKey || "").localeCompare(a.sortKey || ""));
 
   await saveManifest(manifest);
-  return { added, trip: folder };
+  return { added, skipped, trip: folder };
 }
 
 // ---------- auto-sort: dump a pile of photos, trips organize themselves ----------
 async function autoAddPhotos({ files, caption, browserCoords }) {
   const autosort = require("./autosort");
+  const manifest = await loadManifest();
+
+  // 0. dedup — same bytes never enter the universe twice
+  const seen = knownHashes(manifest);
+  let skipped = 0;
+  files = files.filter((f) => {
+    const h = sha1(f.buffer);
+    if (seen.has(h)) { skipped++; return false; }
+    seen.add(h);
+    f._hash = h;
+    return true;
+  });
+  if (!files.length) return [{ trip: "already in the universe", count: 0, skipped, isNew: false }];
 
   // 1. read EXIF from every buffer first
   const items = [];
@@ -207,9 +251,9 @@ async function autoAddPhotos({ files, caption, browserCoords }) {
   }
 
   // 2. cluster into trips, merge into existing ones where they belong
-  const manifest = await loadManifest();
   const clusters = autosort.cluster(items);
   const summary = [];
+  if (skipped) summary.push({ trip: "already there — skipped", count: 0, skipped, isNew: false });
 
   for (const c of clusters) {
     const home = autosort.findHome(c, manifest.trips);
@@ -261,6 +305,7 @@ async function addPhotosToFolder({ manifest, folder, tripMeta, files, exif, capt
     const key = `photos/${folder}/${base}-${stamp}${ext}`;
 
     const photo = { key, caption: caption || base.replace(/-/g, " ") };
+    if (f._hash) photo.hash = f._hash;
     if (ex) {
       if (ex.taken) {
         photo.taken = ex.taken;
@@ -325,4 +370,37 @@ async function listTrips() {
   return m.trips.map((t) => t.folder || `${t.date} ${t.title}`);
 }
 
-module.exports = { enabled, init, addPhotos, autoAddPhotos, renderPhotosJs, listTrips, loadManifest, saveManifest, put, publicBase };
+// ---------- edits: fix the magic's mistakes ----------
+async function editTrip(id, { title, location, note }) {
+  const m = await loadManifest();
+  const t = m.trips.find((x) => x.id === id);
+  if (!t) return false;
+  if (title !== undefined && String(title).trim()) t.title = String(title).trim().slice(0, 80);
+  if (location !== undefined) t.location = String(location).trim().slice(0, 120);
+  if (note !== undefined) t.note = String(note).trim().slice(0, 500);
+  await saveManifest(m);
+  return true;
+}
+
+async function editPhoto(srcOrKey, caption) {
+  const m = await loadManifest();
+  for (const t of m.trips) {
+    const p = t.photos.find((x) => x.key === srcOrKey || srcOrKey.endsWith(encodeURI(x.webKey || x.key)) || srcOrKey.endsWith(encodeURI(x.key)));
+    if (p) {
+      p.caption = String(caption).trim().slice(0, 140);
+      await saveManifest(m);
+      return true;
+    }
+  }
+  return false;
+}
+
+async function setSince(date) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+  const m = await loadManifest();
+  m.since = date;
+  await saveManifest(m);
+  return true;
+}
+
+module.exports = { enabled, init, addPhotos, autoAddPhotos, renderPhotosJs, listTrips, loadManifest, saveManifest, put, publicBase, editTrip, editPhoto, setSince };

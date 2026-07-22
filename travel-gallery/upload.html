@@ -260,7 +260,7 @@ sendBtn.addEventListener("click", async () => {
 
   sendBtn.disabled = true;
   bar.classList.add("show");
-  let saved = 0;
+  let saved = 0, dupes = 0;
   const tripCounts = {};
 
   for (let i = 0; i < chunks.length; i++) {
@@ -283,14 +283,33 @@ sendBtn.addEventListener("click", async () => {
     }
     const r = JSON.parse(xhr.responseText);
     saved += r.saved;
-    if (r.auto && r.summary) for (const s of r.summary) tripCounts[s.trip] = (tripCounts[s.trip] || 0) + s.count;
-    else tripCounts[r.trip] = (tripCounts[r.trip] || 0) + r.saved;
+    dupes += r.skipped || 0;
+    if (r.auto && r.summary) {
+      for (const s of r.summary) {
+        dupes += s.skipped || 0;
+        if (s.count > 0) tripCounts[s.trip] = (tripCounts[s.trip] || 0) + s.count;
+      }
+    } else if (r.saved > 0) {
+      tripCounts[r.trip] = (tripCounts[r.trip] || 0) + r.saved;
+    }
   }
 
   bar.classList.remove("show");
   barFill.style.width = "0%";
   const parts = Object.entries(tripCounts).map(([t, n]) => `${t} ×${n}`).join(" · ");
-  setStatus(`${saved} memor${saved > 1 ? "ies" : "y"} filed ✨ ${parts} 💛`, "ok");
+  const dupNote = dupes ? ` (${dupes} already there, skipped)` : "";
+  if (saved === 0 && dupes > 0) {
+    setStatus(`all ${dupes} of those are already in the universe 💛`, "ok");
+  } else {
+    statusEl.innerHTML = "";
+    statusEl.className = "status ok";
+    statusEl.append(`${saved} memor${saved > 1 ? "ies" : "y"} filed ✨ ${parts}${dupNote} 💛 `);
+    const link = document.createElement("a");
+    link.href = "/";
+    link.textContent = "→ see the universe";
+    link.style.cssText = "color:var(--gold);text-decoration:underline";
+    statusEl.append(link);
+  }
   files = []; renderPreviews(); captionEl.value = "";
   celebrate();
 });
