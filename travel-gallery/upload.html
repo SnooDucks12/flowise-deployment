@@ -113,7 +113,7 @@
   </div>
 
   <div class="field">
-    <label for="caption">A few words <span style="text-transform:none; letter-spacing:0.05em">(becomes the caption — optional)</span></label>
+    <label for="caption" id="captionLabel">A few words <span style="text-transform:none; letter-spacing:0.05em">(optional)</span></label>
     <input type="text" id="caption" maxlength="80" placeholder="e.g. sunset from the boat" />
   </div>
 
@@ -175,13 +175,18 @@ fetch("/api/trips").then((r) => r.json()).then((d) => {
 
 tripSel.addEventListener("change", () => {
   const isNew = tripSel.value === "__new__";
+  const isAuto = tripSel.value === "__auto__";
   newTrip.style.display = isNew ? "block" : "none";
-  tripHint.textContent =
-    tripSel.value === "__auto__"
-      ? "Dump in everything — photo dates & GPS decide the trips, each named after where it happened. Late additions join their trip automatically."
-      : isNew
-        ? "The date is added automatically (this month). To backdate, type e.g. “2024-06 Amalfi Coast”."
-        : "";
+  tripHint.textContent = isAuto
+    ? "Dump in everything — photo dates & GPS decide the trips. Late additions join their trip automatically."
+    : isNew
+      ? "The date is added automatically (this month). To backdate, type e.g. “2024-06 Amalfi Coast”."
+      : "";
+  // in auto mode the words field names the journey; otherwise it captions the photos
+  document.getElementById("captionLabel").innerHTML = isAuto
+    ? 'Name it <span style="text-transform:none; letter-spacing:0.05em">(optional — becomes the journey’s name)</span>'
+    : 'A few words <span style="text-transform:none; letter-spacing:0.05em">(becomes the caption — optional)</span>';
+  captionEl.placeholder = isAuto ? "e.g. Prague Trip 💫" : "e.g. sunset from the boat";
 });
 tripSel.dispatchEvent(new Event("change"));
 

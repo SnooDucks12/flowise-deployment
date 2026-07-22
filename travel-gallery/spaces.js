@@ -263,13 +263,19 @@ async function autoAddPhotos({ files, caption, browserCoords }) {
       tripMeta = null;
     } else {
       tripMeta = await autosort.nameCluster(c, (coords) => reverseGeocode(coords[0], coords[1]));
+      // a name typed by the humans always beats what the machine inferred
+      if (caption && caption.trim()) {
+        const name = caption.trim().slice(0, 60);
+        const ym = tripMeta.folder.slice(0, 7); // keep the YYYY-MM prefix
+        tripMeta = { ...tripMeta, title: name, folder: `${ym} ${name.replace(/[\/\\:*?"<>|]/g, "")}`, location: tripMeta.place || name };
+      }
       folder = tripMeta.folder;
     }
     const r = await addPhotosToFolder({
       manifest, folder, tripMeta,
       files: c.items.map((i) => i.file),
       exif: c.items,
-      caption,
+      caption: "", // in auto mode the typed words name the journey; photo captions stay individual
     });
     summary.push({ trip: r.tripLabel, count: c.items.length, isNew: !home });
   }
@@ -371,13 +377,17 @@ async function listTrips() {
 }
 
 // ---------- edits: fix the magic's mistakes ----------
-async function editTrip(id, { title, location, note }) {
+async function editTrip(id, { title, location, note, coords, place }) {
   const m = await loadManifest();
   const t = m.trips.find((x) => x.id === id);
   if (!t) return false;
   if (title !== undefined && String(title).trim()) t.title = String(title).trim().slice(0, 80);
   if (location !== undefined) t.location = String(location).trim().slice(0, 120);
   if (note !== undefined) t.note = String(note).trim().slice(0, 500);
+  if (Array.isArray(coords) && coords.length === 2 && coords.every((n) => Number.isFinite(n))) {
+    t.coords = [+coords[0].toFixed(4), +coords[1].toFixed(4)]; // puts the trip on the star map
+  }
+  if (place !== undefined) t.place = String(place).trim().slice(0, 120) || undefined;
   await saveManifest(m);
   return true;
 }

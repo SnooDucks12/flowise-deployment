@@ -221,18 +221,23 @@ async function localAutoSort({ files, caption, browserCoords }) {
     if (!folder) {
       const named = await autosort.nameCluster(c, geocode);
       folder = named.folder;
+      // a name typed by the humans always beats what the machine inferred
+      if (caption && caption.trim()) {
+        folder = `${named.folder.slice(0, 7)} ${caption.trim().slice(0, 60).replace(/[\/\\:*?"<>|]/g, "")}`;
+      }
     }
     const dest = path.join(PHOTOS_DIR, folder);
     fs.mkdirSync(dest, { recursive: true });
     for (const it of c.items) {
       const f = it.file;
       const ext = IMG_TYPES[f.mimetype] || ".jpg";
-      const base = slug(caption) || slug(path.basename(f.originalname, path.extname(f.originalname))) || "moment";
+      // in auto mode typed words name the journey — photo captions stay individual
+      const base = slug(path.basename(f.originalname, path.extname(f.originalname))) || "moment";
       const name = `${base}-${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36)}${ext}`;
       fs.writeFileSync(path.join(dest, name), f.buffer);
       meta[name] = {
         uploaded: new Date().toISOString(),
-        caption: caption ? String(caption).slice(0, 140) : base.replace(/-/g, " ") || "a moment",
+        caption: base.replace(/-/g, " ") || "a moment",
         ...(it.coords ? { coords: it.coords } : {}),
       };
     }
