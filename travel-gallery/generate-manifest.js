@@ -39,6 +39,7 @@ const ROOT = __dirname;
 const PHOTOS_DIR = path.join(ROOT, "photos");
 const OUT = path.join(ROOT, "photos.js");
 const GEOCACHE = path.join(ROOT, ".geocache.json");
+const UPLOADS_META = path.join(ROOT, ".uploads-meta.json"); // written by server.js /upload
 const IMG_EXT = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"]);
 const MONTHS = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const WEB_MAX = 1800; // px, long edge for resized web copies
@@ -68,6 +69,10 @@ try {
     }
   }
 } catch { /* first run, nothing to preserve */ }
+
+// ---------- phone-upload sidecar (browser location, upload time) ----------
+let uploadsMeta = {};
+try { uploadsMeta = JSON.parse(fs.readFileSync(UPLOADS_META, "utf8")); } catch {}
 
 // ---------- geocode cache ----------
 let geocache = {};
@@ -124,10 +129,17 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const photos = [];
     for (const f of files) {
       const abs = path.join(tripPath, f);
+      // caption priority: human edit in photos.js > caption typed at upload > cleaned filename
+      const derived = path.basename(f, path.extname(f))
+        .replace(/[-_]+/g, " ")
+        .replace(/\b(img|dsc|pxl|screenshot)\s*\d*\b/gi, "")
+        .replace(/\s[a-z0-9]{8}$/i, "") // strip the upload timestamp suffix
+        .trim();
+      const prev = keepCaption.get(f);
+      const humanEdited = prev && prev !== derived && prev !== (uploadsMeta[f] && uploadsMeta[f].caption);
       const photo = {
         src: `photos/${dir.name}/${f}`,
-        caption: keepCaption.get(f) ||
-          path.basename(f, path.extname(f)).replace(/[-_]+/g, " ").replace(/\b(img|dsc|pxl|screenshot)\s*\d*\b/gi, "").trim(),
+        caption: humanEdited ? prev : ((uploadsMeta[f] && uploadsMeta[f].caption) || derived),
       };
 
       // --- EXIF: date taken, GPS, camera ---
@@ -146,6 +158,17 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
             }
           }
         } catch { /* unreadable EXIF is fine */ }
+      }
+
+      // --- phone-upload sidecar fills gaps EXIF couldn't ---
+      const um = uploadsMeta[f];
+      if (um) {
+        if (um.coords && !photo.coords) photo.coords = um.coords;
+        if (um.uploaded && !photo.taken) {
+          const d = new Date(um.uploaded);
+          photo.taken = d.toISOString();
+          photo.date = `${d.getDate()} ${MONTHS[d.getMonth() + 1]} ${d.getFullYear()}`;
+        }
       }
 
       // --- resize for the web ---

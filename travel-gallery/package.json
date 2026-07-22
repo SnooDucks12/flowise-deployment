@@ -1,0 +1,20 @@
+{
+  "name": "wanderlight",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Liina & Ralf's travel universe — dark space-themed photo gallery with phone uploads",
+  "scripts": {
+    "start": "node server.js",
+    "generate": "node generate-manifest.js",
+    "captions": "node enrich-captions.js"
+  },
+  "dependencies": {
+    "exifr": "^7.1.3",
+    "express": "^4.21.2",
+    "multer": "^2.0.2",
+    "sharp": "^0.34.3"
+  },
+  "optionalDependencies": {
+    "@anthropic-ai/sdk": "^0.116.0"
+  }
+}
