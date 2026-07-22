@@ -18,6 +18,7 @@
    ============================================================ */
 const https = require("https");
 const crypto = require("crypto");
+const { proxyAgent, s3RequestHandler } = require("../proxy-helper");
 
 const TOKEN = process.env.DO_TOKEN;
 const REGION = process.env.SPACES_REGION || "fra1";
@@ -36,6 +37,7 @@ function api(method, apiPath, body) {
       hostname: "api.digitalocean.com",
       path: apiPath,
       method,
+      agent: proxyAgent(),
       headers: {
         Authorization: `Bearer ${TOKEN}`,
         "Content-Type": "application/json",
@@ -64,7 +66,10 @@ function api(method, apiPath, body) {
 
   // 2 — Spaces access key
   console.log("Creating Spaces access key…");
-  const keyRes = await api("POST", "/v2/spaces/keys", { name: `wanderlight-${Date.now().toString(36)}` });
+  const keyRes = await api("POST", "/v2/spaces/keys", {
+    name: `wanderlight-${Date.now().toString(36)}`,
+    grants: [{ bucket: "", permission: "fullaccess" }], // all buckets, read/write/create
+  });
   const accessKey = keyRes.key.access_key;
   const secretKey = keyRes.key.secret_key;
   console.log(`✓ Spaces key created: ${accessKey}`);
@@ -72,10 +77,12 @@ function api(method, apiPath, body) {
   // 3 — bucket via the S3 API
   console.log(`Creating bucket "${BUCKET}" in ${REGION}…`);
   const { S3Client, CreateBucketCommand, HeadBucketCommand } = require("@aws-sdk/client-s3");
+  const handler = s3RequestHandler();
   const s3 = new S3Client({
     region: "us-east-1",
     endpoint: `https://${REGION}.digitaloceanspaces.com`,
     credentials: { accessKeyId: accessKey, secretAccessKey: secretKey },
+    ...(handler ? { requestHandler: handler } : {}),
   });
   // new keys can take a few seconds to propagate
   let made = false;
@@ -110,7 +117,7 @@ function api(method, apiPath, body) {
       region: REGION.replace(/\d+$/, ""),
       services: [{
         name: "web",
-        git: { repo_clone_url: "https://github.com/SnooDucks12/flowise-deployment.git", branch: "main" },
+        git: { repo_clone_url: "https://github.com/SnooDucks12/flowise-deployment.git", branch: process.env.APP_BRANCH || "main" },
         source_dir: "travel-gallery",
         build_command: "npm install",
         run_command: "npm start",

@@ -28,11 +28,14 @@ function enabled() {
 let s3 = null, sharp = null, exifr = null;
 function init() {
   const { S3Client } = require("@aws-sdk/client-s3");
+  const { s3RequestHandler } = require("./proxy-helper");
+  const handler = s3RequestHandler();
   s3 = new S3Client({
     region: "us-east-1", // Spaces ignores this but the SDK requires it
     endpoint: `https://${process.env.SPACES_REGION}.digitaloceanspaces.com`,
     forcePathStyle: false,
     credentials: { accessKeyId: process.env.SPACES_KEY, secretAccessKey: process.env.SPACES_SECRET },
+    ...(handler ? { requestHandler: handler } : {}),
   });
   try { sharp = require("sharp"); } catch {}
   try { exifr = require("exifr"); } catch {}
@@ -77,7 +80,8 @@ function reverseGeocode(lat, lon) {
   if (geocache.has(key)) return Promise.resolve(geocache.get(key));
   const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=10&accept-language=en`;
   return new Promise((resolve) => {
-    const req = https.get(url, { headers: { "User-Agent": "wanderlight-gallery/1.0 (personal travel site)" } }, (res) => {
+    const { proxyAgent } = require("./proxy-helper");
+    const req = https.get(url, { agent: proxyAgent(), headers: { "User-Agent": "wanderlight-gallery/1.0 (personal travel site)" } }, (res) => {
       let body = "";
       res.on("data", (c) => (body += c));
       res.on("end", () => {
