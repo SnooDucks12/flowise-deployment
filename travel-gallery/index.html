@@ -124,7 +124,7 @@
 
   /* ---------- hero ---------- */
   .hero {
-    min-height: 100svh;
+    min-height: 92svh;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -225,7 +225,7 @@
 
   .scroll-hint {
     position: absolute;
-    bottom: max(2rem, env(safe-area-inset-bottom));
+    bottom: max(1rem, env(safe-area-inset-bottom));
     left: 50%;
     transform: translateX(-50%);
     color: var(--ink-dim);
@@ -527,7 +527,7 @@
 
   /* ---------- constellation map ---------- */
   .skymap {
-    padding: clamp(3rem, 8vw, 6rem) clamp(1rem, 5vw, 4rem);
+    padding: clamp(2rem, 5vw, 3.5rem) clamp(1rem, 5vw, 4rem) clamp(1.2rem, 3vw, 2.2rem);
     max-width: 1100px;
     margin: 0 auto;
   }
@@ -550,16 +550,30 @@
     display: block;
     width: 100%;
     height: auto;
-    margin-top: 2rem;
+    margin-top: clamp(0.8rem, 2.5vw, 1.6rem);
     overflow: visible;
   }
   .skymap .const-line {
     fill: none;
     stroke: url(#constGrad);
-    stroke-width: 1;
-    stroke-dasharray: 3 6;
-    opacity: 0.55;
+    stroke-width: 1.2;
+    stroke-dasharray: 3 7;
+    stroke-linecap: round;
+    opacity: 0;
+    animation: line-in 1.6s ease 0.5s forwards, dash-drift 60s linear infinite;
   }
+  .skymap .const-line-glow {
+    fill: none;
+    stroke: url(#constGrad);
+    stroke-width: 5;
+    stroke-linecap: round;
+    filter: blur(6px);
+    opacity: 0;
+    animation: line-in-glow 1.6s ease 0.5s forwards;
+  }
+  @keyframes line-in { to { opacity: 0.65; } }
+  @keyframes line-in-glow { to { opacity: 0.18; } }
+  @keyframes dash-drift { to { stroke-dashoffset: -300; } }
   .skymap .const-star { cursor: pointer; }
   .skymap .const-star circle.core { fill: #fff; transition: r 0.3s var(--ease-out); }
   .skymap .const-star circle.halo {
@@ -600,8 +614,23 @@
     0%, 100% { opacity: 0.15; transform: scale(1); }
     50% { opacity: 0.5; transform: scale(1.35); }
   }
-  .skymap .const-star { transform-box: fill-box; }
+  .skymap .const-star {
+    transform-box: fill-box;
+    transform-origin: center;
+    opacity: 0;
+    animation: star-in 0.9s var(--ease-out) forwards;
+  }
   .skymap .const-star circle.halo { transform-origin: center; transform-box: fill-box; }
+  @keyframes star-in {
+    from { opacity: 0; transform: scale(0.5); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+  /* phone: the viewBox narrows to 640, so type must grow to stay readable */
+  @media (max-width: 640px) {
+    .skymap .const-star text { font-size: 14px; }
+    .skymap .const-star .place-lbl { font-size: 12px; }
+    .skymap .const-star .chrono-num { font-size: 12.5px; }
+  }
 
   /* ---------- footer ---------- */
   footer {
@@ -1037,22 +1066,44 @@ lb.addEventListener("touchend", (e) => {
 
   const svg = document.getElementById("skymapSvg");
   const NS = "http://www.w3.org/2000/svg";
-  const W = 1000, H = 520, PAD = 90;
+  // canvas grows with the constellation — few stars need little sky.
+  // On phones the viewBox narrows so labels render at a readable size.
+  const compact = matchMedia("(max-width: 640px)").matches;
+  const W = compact ? 640 : 1000;
+  const H = (withCoords.length <= 2 ? 340 : withCoords.length <= 4 ? 440 : 540) * (compact ? 0.92 : 1);
+  const PAD = compact ? 74 : 96;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+
+  // TRUE chronology: order by the moment each trip's first photo was taken
+  // (falls back to the trip list's own oldest-first order when undated)
+  const oldestFirst = [...trips].reverse();
+  const chrono = withCoords
+    .map((t) => {
+      const times = t.photos.map((p) => p.taken).filter(Boolean).sort();
+      return { t, key: times[0] || null, fb: oldestFirst.indexOf(t) };
+    })
+    .sort((a, b) => {
+      if (a.key && b.key) return a.key.localeCompare(b.key);
+      if (a.key) return -1;
+      if (b.key) return 1;
+      return a.fb - b.fb;
+    })
+    .map((x) => x.t);
 
   // fit lat/lon bounding box into the viewport (equirectangular)
-  const lats = withCoords.map((t) => t.coords[0]);
-  const lons = withCoords.map((t) => t.coords[1]);
+  const lats = chrono.map((t) => t.coords[0]);
+  const lons = chrono.map((t) => t.coords[1]);
   const latMin = Math.min(...lats), latMax = Math.max(...lats);
   const lonMin = Math.min(...lons), lonMax = Math.max(...lons);
-  const latSpan = Math.max(latMax - latMin, 4);
-  const lonSpan = Math.max(lonMax - lonMin, 4);
+  const latSpan = Math.max(latMax - latMin, 3);
+  const lonSpan = Math.max(lonMax - lonMin, 3);
   const project = ([lat, lon]) => [
     PAD + ((lon - lonMin + (lonSpan - (lonMax - lonMin)) / 2) / lonSpan) * (W - PAD * 2),
     PAD + ((latMax - lat + (latSpan - (latMax - latMin)) / 2) / latSpan) * (H - PAD * 2),
   ];
 
   // faint background stars
-  for (let i = 0; i < 70; i++) {
+  for (let i = 0; i < 60; i++) {
     const s = document.createElementNS(NS, "circle");
     s.setAttribute("cx", Math.random() * W);
     s.setAttribute("cy", Math.random() * H);
@@ -1062,13 +1113,38 @@ lb.addEventListener("touchend", (e) => {
     svg.appendChild(s);
   }
 
-  // chronological line, oldest → newest (trips array is newest-first)
-  const chrono = [...withCoords].reverse();
+  // the line of our story — a soft curve through the stars, oldest → newest
   const pts = chrono.map((t) => project(t.coords));
+  function storyPath(p) {
+    if (p.length < 2) return "";
+    if (p.length === 2) {
+      // gentle arc between two stars, not a stiff ruler line
+      const [a, b] = p;
+      const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+      const dx = b[0] - a[0], dy = b[1] - a[1];
+      const len = Math.sqrt(dx * dx + dy * dy) || 1;
+      const lift = Math.min(40, len * 0.16);
+      return `M${a[0].toFixed(1)},${a[1].toFixed(1)} Q${(mx - (dy / len) * lift).toFixed(1)},${(my + (dx / len) * lift).toFixed(1)} ${b[0].toFixed(1)},${b[1].toFixed(1)}`;
+    }
+    // Catmull-Rom → cubic beziers: one smooth thread through every star
+    let d = `M${p[0][0].toFixed(1)},${p[0][1].toFixed(1)}`;
+    for (let i = 0; i < p.length - 1; i++) {
+      const p0 = p[Math.max(0, i - 1)], p1 = p[i], p2 = p[i + 1], p3 = p[Math.min(p.length - 1, i + 2)];
+      const c1 = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6];
+      const c2 = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
+      d += ` C${c1[0].toFixed(1)},${c1[1].toFixed(1)} ${c2[0].toFixed(1)},${c2[1].toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
+    }
+    return d;
+  }
   if (pts.length > 1) {
+    const d = storyPath(pts);
+    const glowPath = document.createElementNS(NS, "path");
+    glowPath.setAttribute("class", "const-line-glow");
+    glowPath.setAttribute("d", d);
+    svg.appendChild(glowPath);
     const path = document.createElementNS(NS, "path");
     path.setAttribute("class", "const-line");
-    path.setAttribute("d", pts.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(" "));
+    path.setAttribute("d", d);
     svg.appendChild(path);
   }
 
@@ -1087,6 +1163,7 @@ lb.addEventListener("touchend", (e) => {
     g.setAttribute("role", "link");
     g.setAttribute("tabindex", "0");
     g.setAttribute("aria-label", `Go to ${t.title} — ${t.photos.length} moments`);
+    g.style.animationDelay = `${0.25 + i * 0.18}s`; // stars arrive in story order
     const labelAbove = y > H / 2;
     const labelGap = 14 + 9 * s; // labels step back as the star grows
     g.innerHTML =

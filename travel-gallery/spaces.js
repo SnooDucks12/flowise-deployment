@@ -84,6 +84,31 @@ function reverseGeocode(lat, lon) {
   geoQueue = run.then(() => new Promise((r) => setTimeout(r, 1100)));
   return run;
 }
+// name → coordinates, for trips whose photos carry no GPS ("Finland" still gets a star)
+function forwardGeocode(name) {
+  const q = String(name || "").replace(/[^\p{L}\p{N}\s,.-]/gu, "").trim(); // strip emoji etc.
+  if (!q) return Promise.resolve(null);
+  const run = geoQueue.then(() => new Promise((resolve) => {
+    const { proxyAgent } = require("./proxy-helper");
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&accept-language=en&q=${encodeURIComponent(q)}`;
+    const req = https.get(url, { agent: proxyAgent(), headers: { "User-Agent": "wanderlight-gallery/1.0 (personal travel site)" } }, (res) => {
+      let body = "";
+      res.on("data", (c) => (body += c));
+      res.on("end", () => {
+        try {
+          const j = JSON.parse(body);
+          if (j[0] && j[0].lat) resolve([+parseFloat(j[0].lat).toFixed(4), +parseFloat(j[0].lon).toFixed(4)]);
+          else resolve(null);
+        } catch { resolve(null); }
+      });
+    });
+    req.on("error", () => resolve(null));
+    req.setTimeout(8000, () => { req.destroy(); resolve(null); });
+  }));
+  geoQueue = run.then(() => new Promise((r) => setTimeout(r, 1100)));
+  return run;
+}
+
 function geocodeNow(lat, lon, key) {
   if (geocache.has(key)) return Promise.resolve(geocache.get(key));
   const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=10&accept-language=en`;
@@ -208,6 +233,9 @@ async function addPhotos({ folder, files, caption, browserCoords }) {
       +(gps.reduce((s, p) => s + p.coords[1], 0) / gps.length).toFixed(4),
     ];
     trip.place = (await reverseGeocode(trip.coords[0], trip.coords[1])) || trip.place;
+  } else if (!trip.coords) {
+    trip.coords = (await forwardGeocode(trip.location || trip.title)) || undefined;
+    if (!trip.coords) delete trip.coords;
   }
   manifest.trips.sort((a, b) => (b.sortKey || "").localeCompare(a.sortKey || ""));
 
@@ -347,6 +375,10 @@ async function addPhotosToFolder({ manifest, folder, tripMeta, files, exif, capt
       +(gps.reduce((s, p) => s + p.coords[1], 0) / gps.length).toFixed(4),
     ];
     if (!trip.place) trip.place = (await reverseGeocode(trip.coords[0], trip.coords[1])) || undefined;
+  } else if (!trip.coords) {
+    // no GPS anywhere — place the star by the journey's name so it still joins the map
+    trip.coords = (await forwardGeocode(trip.location || trip.title)) || undefined;
+    if (!trip.coords) delete trip.coords;
   }
   manifest.trips.sort((a, b) => (b.sortKey || "").localeCompare(a.sortKey || ""));
   return { tripLabel: trip.title + (trip.date ? ` (${trip.date})` : "") };
