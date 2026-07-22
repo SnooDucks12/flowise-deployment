@@ -35,10 +35,12 @@ function haversineKm([lat1, lon1], [lat2, lon2]) {
 function centroid(items) {
   const gps = items.filter((p) => p.coords);
   if (!gps.length) return null;
-  return [
-    +(gps.reduce((s, p) => s + p.coords[0], 0) / gps.length).toFixed(4),
-    +(gps.reduce((s, p) => s + p.coords[1], 0) / gps.length).toFixed(4),
-  ];
+  // circular mean for longitude — a Fiji trip straddling ±180° must not land in the Atlantic
+  const rad = Math.PI / 180;
+  const lat = gps.reduce((s, p) => s + p.coords[0], 0) / gps.length;
+  const x = gps.reduce((s, p) => s + Math.cos(p.coords[1] * rad), 0);
+  const y = gps.reduce((s, p) => s + Math.sin(p.coords[1] * rad), 0);
+  return [+lat.toFixed(4), +(Math.atan2(y, x) / rad).toFixed(4)];
 }
 
 /* items: [{ taken: ISO string | null, coords: [lat,lon] | null, ...anything }]

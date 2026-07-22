@@ -200,10 +200,10 @@ async function addPhotos({ folder, files, caption, browserCoords }) {
       } catch {}
     }
     if (!photo.coords && browserCoords) photo.coords = browserCoords;
-    if (!photo.taken) {
-      const d = new Date();
-      photo.taken = d.toISOString();
-      photo.date = `${d.getDate()} ${MONTHS[d.getMonth() + 1]} ${d.getFullYear()}`;
+    if (!photo.taken && fm) {
+      // no EXIF date (scans, WhatsApp saves) — the folder's month is truer than upload time
+      photo.taken = `${fm[1]}-${fm[2]}-01T00:00:00.000Z`;
+      photo.date = `${MONTHS[parseInt(fm[2], 10)]} ${fm[1]}`;
     }
     if (photo.coords) photo.place = (await reverseGeocode(photo.coords[0], photo.coords[1])) || undefined;
 
@@ -228,13 +228,13 @@ async function addPhotos({ folder, files, caption, browserCoords }) {
   trip.photos.sort((a, b) => (a.taken || "9999").localeCompare(b.taken || "9999"));
   const gps = trip.photos.filter((p) => p.coords);
   if (gps.length) {
-    trip.coords = [
-      +(gps.reduce((s, p) => s + p.coords[0], 0) / gps.length).toFixed(4),
-      +(gps.reduce((s, p) => s + p.coords[1], 0) / gps.length).toFixed(4),
-    ];
+    trip.coords = require("./autosort").centroid(gps); // circular-mean longitude
     trip.place = (await reverseGeocode(trip.coords[0], trip.coords[1])) || trip.place;
   } else if (!trip.coords) {
-    trip.coords = (await forwardGeocode(trip.location || trip.title)) || undefined;
+    // machine-made names ("Jul Adventure", "Unsorted Moments") are not places — do not geocode them
+    const nameForGeo = trip.location || trip.title;
+    const generic = /\badventure\b|\bunsorted\b|\bmoments\b/i.test(nameForGeo);
+    trip.coords = generic ? undefined : (await forwardGeocode(nameForGeo)) || undefined;
     if (!trip.coords) delete trip.coords;
   }
   manifest.trips.sort((a, b) => (b.sortKey || "").localeCompare(a.sortKey || ""));
@@ -370,14 +370,14 @@ async function addPhotosToFolder({ manifest, folder, tripMeta, files, exif, capt
   trip.photos.sort((a, b) => (a.taken || "9999").localeCompare(b.taken || "9999"));
   const gps = trip.photos.filter((p) => p.coords);
   if (gps.length) {
-    trip.coords = [
-      +(gps.reduce((s, p) => s + p.coords[0], 0) / gps.length).toFixed(4),
-      +(gps.reduce((s, p) => s + p.coords[1], 0) / gps.length).toFixed(4),
-    ];
+    trip.coords = require("./autosort").centroid(gps); // circular-mean longitude
     if (!trip.place) trip.place = (await reverseGeocode(trip.coords[0], trip.coords[1])) || undefined;
   } else if (!trip.coords) {
     // no GPS anywhere — place the star by the journey's name so it still joins the map
-    trip.coords = (await forwardGeocode(trip.location || trip.title)) || undefined;
+    // machine-made names ("Jul Adventure", "Unsorted Moments") are not places — do not geocode them
+    const nameForGeo = trip.location || trip.title;
+    const generic = /\badventure\b|\bunsorted\b|\bmoments\b/i.test(nameForGeo);
+    trip.coords = generic ? undefined : (await forwardGeocode(nameForGeo)) || undefined;
     if (!trip.coords) delete trip.coords;
   }
   manifest.trips.sort((a, b) => (b.sortKey || "").localeCompare(a.sortKey || ""));

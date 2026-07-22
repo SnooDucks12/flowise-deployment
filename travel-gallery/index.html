@@ -313,7 +313,7 @@
   /* ---------- chapters ---------- */
   .chapters { padding: clamp(3rem, 8vw, 6rem) clamp(1rem, 5vw, 4rem) 4rem; }
 
-  .chapter { margin-bottom: clamp(4rem, 10vw, 8rem); }
+  .chapter { margin-bottom: clamp(4rem, 10vw, 8rem); scroll-margin-top: 4.5rem; }
   .chapter.hidden { display: none; }
 
   .chapter-head {
@@ -583,15 +583,23 @@
     opacity: 0.35;
     animation: halo-pulse 3.4s ease-in-out infinite;
   }
-  .skymap .const-star:hover circle.core { r: 6; }
+  .skymap .const-star circle.core { transform-box: fill-box; transform-origin: center; transition: transform 0.3s var(--ease-out); }
+  .skymap .const-star:hover circle.core,
+  .skymap .const-star:focus-visible circle.core { transform: scale(1.3); }
+  .skymap .const-star:focus-visible { outline: none; }
+  .skymap .const-star:focus-visible circle.halo { stroke: var(--gold); opacity: 0.8; }
   .skymap .const-star text {
     font-family: var(--sans);
-    font-size: 10.5px;
+    font-size: 12px;
     font-weight: 400;
     letter-spacing: 0.22em;
     text-transform: uppercase;
     fill: var(--ink-dim);
     transition: fill 0.3s ease;
+    paint-order: stroke;
+    stroke: var(--bg);
+    stroke-width: 3px;
+    stroke-linejoin: round;
   }
   .skymap .const-star:hover text { fill: var(--rose); }
   .skymap .const-star .place-lbl {
@@ -627,9 +635,9 @@
   }
   /* phone: the viewBox narrows to 640, so type must grow to stay readable */
   @media (max-width: 640px) {
-    .skymap .const-star text { font-size: 14px; }
-    .skymap .const-star .place-lbl { font-size: 12px; }
-    .skymap .const-star .chrono-num { font-size: 12.5px; }
+    .skymap .const-star text { font-size: 16px; }
+    .skymap .const-star .place-lbl { font-size: 13px; }
+    .skymap .const-star .chrono-num { font-size: 13px; }
   }
 
   /* ---------- footer ---------- */
@@ -724,8 +732,13 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after { animation-duration: 0.001s !important; transition-duration: 0.001s !important; }
+    /* kill animations outright — a 0.001s infinite loop would strobe, which is worse */
+    *, *::before, *::after { animation: none !important; transition-duration: 0.001s !important; }
     html { scroll-behavior: auto; }
+    /* elements whose resting state is "hidden until animated in" must be shown */
+    .skymap .const-line { opacity: 0.65; }
+    .skymap .const-line-glow { opacity: 0.18; }
+    .skymap .const-star { opacity: 1; }
   }
 </style>
 </head>
@@ -1060,137 +1073,196 @@ lb.addEventListener("touchend", (e) => {
 
 /* ---------- constellation map (from GPS metadata) ---------- */
 (function skymap() {
-  const withCoords = trips.filter((t) => Array.isArray(t.coords));
-  if (withCoords.length === 0) return; // no GPS data yet — section stays hidden
+  const valid = trips.filter((t) =>
+    Array.isArray(t.coords) && t.coords.length === 2 && t.coords.every(Number.isFinite));
+  if (valid.length === 0) return; // no placed trips yet — section stays hidden
   document.getElementById("skymap").hidden = false;
 
   const svg = document.getElementById("skymapSvg");
   const NS = "http://www.w3.org/2000/svg";
-  // canvas grows with the constellation — few stars need little sky.
-  // On phones the viewBox narrows so labels render at a readable size.
-  const compact = matchMedia("(max-width: 640px)").matches;
-  const W = compact ? 640 : 1000;
-  const H = (withCoords.length <= 2 ? 340 : withCoords.length <= 4 ? 440 : 540) * (compact ? 0.92 : 1);
-  const PAD = compact ? 74 : 96;
-  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const mq = matchMedia("(max-width: 640px)");
 
-  // TRUE chronology: order by the moment each trip's first photo was taken
-  // (falls back to the trip list's own oldest-first order when undated)
-  const oldestFirst = [...trips].reverse();
-  const chrono = withCoords
-    .map((t) => {
-      const times = t.photos.map((p) => p.taken).filter(Boolean).sort();
-      return { t, key: times[0] || null, fb: oldestFirst.indexOf(t) };
-    })
-    .sort((a, b) => {
-      if (a.key && b.key) return a.key.localeCompare(b.key);
-      if (a.key) return -1;
-      if (b.key) return 1;
-      return a.fb - b.fb;
-    })
-    .map((x) => x.t);
+  function build() {
+    // rebuildable: clear everything except <defs> (gradients live there)
+    [...svg.childNodes].forEach((n) => { if (n.nodeName.toLowerCase() !== "defs") svg.removeChild(n); });
 
-  // fit lat/lon bounding box into the viewport (equirectangular)
-  const lats = chrono.map((t) => t.coords[0]);
-  const lons = chrono.map((t) => t.coords[1]);
-  const latMin = Math.min(...lats), latMax = Math.max(...lats);
-  const lonMin = Math.min(...lons), lonMax = Math.max(...lons);
-  const latSpan = Math.max(latMax - latMin, 3);
-  const lonSpan = Math.max(lonMax - lonMin, 3);
-  const project = ([lat, lon]) => [
-    PAD + ((lon - lonMin + (lonSpan - (lonMax - lonMin)) / 2) / lonSpan) * (W - PAD * 2),
-    PAD + ((latMax - lat + (latSpan - (latMax - latMin)) / 2) / latSpan) * (H - PAD * 2),
-  ];
+    // canvas grows with the constellation; phones get a narrower viewBox so labels render larger
+    const compact = mq.matches;
+    const W = compact ? 640 : 1000;
+    const H = Math.round((valid.length <= 2 ? 340 : valid.length <= 4 ? 440 : 540) * (compact ? 0.92 : 1));
+    const PAD = compact ? 74 : 96;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
 
-  // faint background stars
-  for (let i = 0; i < 60; i++) {
-    const s = document.createElementNS(NS, "circle");
-    s.setAttribute("cx", Math.random() * W);
-    s.setAttribute("cy", Math.random() * H);
-    s.setAttribute("r", Math.random() * 1.2 + 0.3);
-    s.setAttribute("fill", "#eceaf6");
-    s.setAttribute("opacity", (0.08 + Math.random() * 0.2).toFixed(2));
-    svg.appendChild(s);
-  }
+    // TRUE chronology: order by the moment each trip's first photo was taken;
+    // any pair involving an undated trip falls back to the list's oldest-first order
+    const oldestFirst = [...trips].reverse();
+    const chrono = valid
+      .map((t) => {
+        const times = t.photos.map((p) => p.taken).filter(Boolean).sort();
+        return { t, key: times[0] || null, fb: oldestFirst.indexOf(t) };
+      })
+      .sort((a, b) => (a.key && b.key) ? a.key.localeCompare(b.key) : a.fb - b.fb)
+      .map((x) => x.t);
 
-  // the line of our story — a soft curve through the stars, oldest → newest
-  const pts = chrono.map((t) => project(t.coords));
-  function storyPath(p) {
-    if (p.length < 2) return "";
-    if (p.length === 2) {
-      // gentle arc between two stars, not a stiff ruler line
-      const [a, b] = p;
-      const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
-      const dx = b[0] - a[0], dy = b[1] - a[1];
-      const len = Math.sqrt(dx * dx + dy * dy) || 1;
-      const lift = Math.min(40, len * 0.16);
-      return `M${a[0].toFixed(1)},${a[1].toFixed(1)} Q${(mx - (dy / len) * lift).toFixed(1)},${(my + (dx / len) * lift).toFixed(1)} ${b[0].toFixed(1)},${b[1].toFixed(1)}`;
+    // unwrap longitudes across the widest gap so Tokyo→Honolulu goes the short
+    // way around the globe instead of stretching across the whole map
+    const rawLons = chrono.map((t) => t.coords[1]);
+    const sortedLons = [...rawLons].sort((a, b) => a - b);
+    let cutLon = sortedLons[0];
+    let maxGap = sortedLons[0] + 360 - sortedLons[sortedLons.length - 1];
+    for (let i = 1; i < sortedLons.length; i++) {
+      if (sortedLons[i] - sortedLons[i - 1] > maxGap) { maxGap = sortedLons[i] - sortedLons[i - 1]; cutLon = sortedLons[i]; }
     }
-    // Catmull-Rom → cubic beziers: one smooth thread through every star
-    let d = `M${p[0][0].toFixed(1)},${p[0][1].toFixed(1)}`;
-    for (let i = 0; i < p.length - 1; i++) {
-      const p0 = p[Math.max(0, i - 1)], p1 = p[i], p2 = p[i + 1], p3 = p[Math.min(p.length - 1, i + 2)];
-      const c1 = [p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6];
-      const c2 = [p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6];
-      d += ` C${c1[0].toFixed(1)},${c1[1].toFixed(1)} ${c2[0].toFixed(1)},${c2[1].toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
-    }
-    return d;
-  }
-  if (pts.length > 1) {
-    const d = storyPath(pts);
-    const glowPath = document.createElementNS(NS, "path");
-    glowPath.setAttribute("class", "const-line-glow");
-    glowPath.setAttribute("d", d);
-    svg.appendChild(glowPath);
-    const path = document.createElementNS(NS, "path");
-    path.setAttribute("class", "const-line");
-    path.setAttribute("d", d);
-    svg.appendChild(path);
-  }
+    const unwrap = (lon) => (lon < cutLon ? lon + 360 : lon);
 
-  // big trips shine brighter — star size scales with how many moments live there
-  const maxCount = Math.max(...chrono.map((t) => t.photos.length), 1);
-  const shine = (t) => Math.sqrt(t.photos.length / maxCount); // 0..1, gentle curve
+    const lats = chrono.map((t) => t.coords[0]);
+    const lons = rawLons.map(unwrap);
+    const latMin = Math.min(...lats), latMax = Math.max(...lats);
+    const lonMin = Math.min(...lons), lonMax = Math.max(...lons);
+    const latSpan = Math.max(latMax - latMin, 3);
+    const lonSpan = Math.max(lonMax - lonMin, 3);
+    const project = ([lat, lon]) => [
+      PAD + ((unwrap(lon) - lonMin + (lonSpan - (lonMax - lonMin)) / 2) / lonSpan) * (W - PAD * 2),
+      PAD + ((latMax - lat + (latSpan - (latMax - latMin)) / 2) / latSpan) * (H - PAD * 2),
+    ];
 
-  chrono.forEach((t, i) => {
-    const [x, y] = pts[i];
-    const s = shine(t);
-    const core = (3.5 + 5 * s).toFixed(1);
-    const halo = (7 + 9 * s).toFixed(1);
-    const glow = (20 + 36 * s).toFixed(0);
-    const g = document.createElementNS(NS, "g");
-    g.setAttribute("class", "const-star");
-    g.setAttribute("role", "link");
-    g.setAttribute("tabindex", "0");
-    g.setAttribute("aria-label", `Go to ${t.title} — ${t.photos.length} moments`);
-    g.style.animationDelay = `${0.25 + i * 0.18}s`; // stars arrive in story order
-    const labelAbove = y > H / 2;
-    const labelGap = 14 + 9 * s; // labels step back as the star grows
-    g.innerHTML =
-      `<title>${t.title} · ${t.photos.length} moment${t.photos.length === 1 ? "" : "s"}</title>` +
-      `<circle cx="${x}" cy="${y}" r="${glow}" fill="url(#starGlow)" opacity="${(0.55 + 0.45 * s).toFixed(2)}"/>` +
-      `<circle class="halo" cx="${x}" cy="${y}" r="${halo}"/>` +
-      `<circle class="core" cx="${x}" cy="${y}" r="${core}"/>` +
-      (chrono.length > 1
-        ? `<text class="chrono-num" x="${x}" y="${labelAbove ? y + labelGap + 22 : y - labelGap - 12}" text-anchor="middle">${String(i + 1).padStart(2, "0")}</text>`
-        : "") +
-      `<text x="${x}" y="${labelAbove ? y - labelGap - 8 : y + labelGap + 16}" text-anchor="middle">${t.title}</text>` +
-      (t.place || t.location
-        ? `<text class="place-lbl" x="${x}" y="${labelAbove ? y - labelGap - 22 : y + labelGap + 30}" text-anchor="middle">${t.place || t.location}</text>`
-        : "");
-    const go = () => {
-      const target = document.querySelector(`.chapter[data-id="${t.id}"]`);
-      if (target) {
-        document.querySelectorAll(".chapter").forEach((c) => c.classList.remove("hidden"));
-        filtersEl.querySelectorAll(".chip").forEach((c) => c.classList.toggle("active", c.dataset.id === "all"));
-        revealVisible();
-        target.scrollIntoView({ behavior: "smooth", block: "start" });
+    // two journeys to the same city must not stack — spread coincident stars apart
+    const pts = chrono.map((t) => project(t.coords));
+    const MIN_D = 30;
+    for (let pass = 0; pass < 3; pass++) {
+      for (let i = 0; i < pts.length; i++) {
+        for (let j = i + 1; j < pts.length; j++) {
+          const dx = pts[j][0] - pts[i][0], dy = pts[j][1] - pts[i][1];
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < MIN_D) {
+            const ang = d < 0.001 ? (j * 2.4) : Math.atan2(dy, dx);
+            const push = (MIN_D - d) / 2 + 0.5;
+            pts[i][0] -= Math.cos(ang) * push; pts[i][1] -= Math.sin(ang) * push;
+            pts[j][0] += Math.cos(ang) * push; pts[j][1] += Math.sin(ang) * push;
+          }
+        }
       }
-    };
-    g.addEventListener("click", go);
-    g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
-    svg.appendChild(g);
-  });
+    }
+    // keep everything on the canvas after spreading
+    for (const p of pts) {
+      p[0] = Math.min(W - PAD * 0.6, Math.max(PAD * 0.6, p[0]));
+      p[1] = Math.min(H - PAD * 0.55, Math.max(PAD * 0.55, p[1]));
+    }
+
+    // faint background stars
+    for (let i = 0; i < 60; i++) {
+      const s = document.createElementNS(NS, "circle");
+      s.setAttribute("cx", Math.random() * W);
+      s.setAttribute("cy", Math.random() * H);
+      s.setAttribute("r", Math.random() * 1.2 + 0.3);
+      s.setAttribute("fill", "#eceaf6");
+      s.setAttribute("opacity", (0.08 + Math.random() * 0.2).toFixed(2));
+      svg.appendChild(s);
+    }
+
+    // the line of our story — a soft curve through the stars, oldest → newest.
+    // Control points are clamped so uneven star spacing can't loop the thread.
+    function storyPath(p) {
+      if (p.length < 2) return "";
+      if (p.length === 2) {
+        const [a, b] = p;
+        const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+        const dx = b[0] - a[0], dy = b[1] - a[1];
+        const len = Math.sqrt(dx * dx + dy * dy) || 1;
+        const lift = Math.min(40, len * 0.16);
+        return `M${a[0].toFixed(1)},${a[1].toFixed(1)} Q${(mx - (dy / len) * lift).toFixed(1)},${(my + (dx / len) * lift).toFixed(1)} ${b[0].toFixed(1)},${b[1].toFixed(1)}`;
+      }
+      const clamp = (c, from, segLen) => {
+        const vx = c[0] - from[0], vy = c[1] - from[1];
+        const l = Math.sqrt(vx * vx + vy * vy);
+        const max = segLen * 0.38;
+        if (l <= max || l === 0) return c;
+        return [from[0] + (vx / l) * max, from[1] + (vy / l) * max];
+      };
+      let d = `M${p[0][0].toFixed(1)},${p[0][1].toFixed(1)}`;
+      for (let i = 0; i < p.length - 1; i++) {
+        const p0 = p[Math.max(0, i - 1)], p1 = p[i], p2 = p[i + 1], p3 = p[Math.min(p.length - 1, i + 2)];
+        const seg = Math.sqrt((p2[0] - p1[0]) ** 2 + (p2[1] - p1[1]) ** 2) || 1;
+        const c1 = clamp([p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6], p1, seg);
+        const c2 = clamp([p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6], p2, seg);
+        d += ` C${c1[0].toFixed(1)},${c1[1].toFixed(1)} ${c2[0].toFixed(1)},${c2[1].toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
+      }
+      return d;
+    }
+    if (pts.length > 1) {
+      const d = storyPath(pts);
+      const glowPath = document.createElementNS(NS, "path");
+      glowPath.setAttribute("class", "const-line-glow");
+      glowPath.setAttribute("d", d);
+      svg.appendChild(glowPath);
+      const path = document.createElementNS(NS, "path");
+      path.setAttribute("class", "const-line");
+      path.setAttribute("d", d);
+      svg.appendChild(path);
+    }
+
+    // big trips shine brighter — star size scales with how many moments live there
+    const maxCount = Math.max(...chrono.map((t) => t.photos.length), 1);
+    const shine = (t) => Math.sqrt(t.photos.length / maxCount);
+    const clampX = (x) => Math.min(W - 60, Math.max(60, x)); // labels stay on canvas
+
+    // crowded neighbours take opposite label sides so titles never pile up
+    const sides = pts.map(([, y]) => y > H / 2); // true = label above the star
+    for (let i = 0; i < pts.length; i++) {
+      for (let j = i + 1; j < pts.length; j++) {
+        if (sides[i] === sides[j] &&
+            Math.hypot(pts[i][0] - pts[j][0], pts[i][1] - pts[j][1]) < 95) {
+          sides[j] = !sides[j];
+        }
+      }
+    }
+
+    chrono.forEach((t, i) => {
+      const [x, y] = pts[i];
+      const s = shine(t);
+      const core = (3.5 + 5 * s).toFixed(1);
+      const halo = (7 + 9 * s).toFixed(1);
+      const glow = (20 + 36 * s).toFixed(0);
+      const g = document.createElementNS(NS, "g");
+      g.setAttribute("class", "const-star");
+      g.setAttribute("role", "link");
+      g.setAttribute("tabindex", "0");
+      g.setAttribute("aria-label", `Go to ${esc(t.title)} — ${t.photos.length} moments`);
+      g.style.animationDelay = `${0.25 + i * 0.18}s`; // stars arrive in story order
+      const labelAbove = sides[i];
+      const labelGap = 14 + 9 * s;
+      const lx = clampX(x);
+      g.innerHTML =
+        `<title>${esc(t.title)} · ${t.photos.length} moment${t.photos.length === 1 ? "" : "s"}</title>` +
+        `<circle cx="${x}" cy="${y}" r="${glow}" fill="url(#starGlow)" opacity="${(0.55 + 0.45 * s).toFixed(2)}"/>` +
+        `<circle class="halo" cx="${x}" cy="${y}" r="${halo}"/>` +
+        `<circle class="core" cx="${x}" cy="${y}" r="${core}"/>` +
+        (chrono.length > 1
+          ? `<text class="chrono-num" x="${lx}" y="${labelAbove ? y + labelGap + 22 : y - labelGap - 12}" text-anchor="middle">${String(i + 1).padStart(2, "0")}</text>`
+          : "") +
+        `<text class="star-title" x="${lx}" y="${labelAbove ? y - labelGap - 8 : y + labelGap + 16}" text-anchor="middle">${esc(t.title)}</text>` +
+        (t.place || t.location
+          ? `<text class="place-lbl" x="${lx}" y="${labelAbove ? y - labelGap - 22 : y + labelGap + 30}" text-anchor="middle">${esc(t.place || t.location)}</text>`
+          : "");
+      const go = () => {
+        const target = document.querySelector(`.chapter[data-id="${t.id}"]`);
+        if (target) {
+          document.querySelectorAll(".chapter").forEach((c) => c.classList.remove("hidden"));
+          filtersEl.querySelectorAll(".chip").forEach((c) => c.classList.toggle("active", c.dataset.id === "all"));
+          revealVisible();
+          target.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      };
+      g.addEventListener("click", go);
+      g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+      svg.appendChild(g);
+    });
+  }
+
+  build();
+  // phone rotation / window resize crosses the 640px breakpoint — rebuild to match
+  if (mq.addEventListener) mq.addEventListener("change", build);
 })();
 
 /* ---------- server mode: upload buttons + edit-in-place ---------- */
