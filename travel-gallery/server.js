@@ -320,11 +320,17 @@ app.get("/api/trips", async (req, res) => {
 // in cloud mode the manifest is served live from Spaces (index.html is unchanged)
 if (CLOUD) {
   app.get("/photos.js", async (req, res) => {
+    res.type("application/javascript").set("Cache-Control", "no-cache");
     try {
-      res.type("application/javascript").set("Cache-Control", "no-cache").send(await spaces.renderPhotosJs());
+      const js = await spaces.renderPhotosJs();
+      // until the first real photo arrives, show the demo postcards instead of an empty sky
+      if (/window\.TRIPS = \[\]/.test(js)) {
+        return res.send(fs.readFileSync(path.join(ROOT, "photos.js"), "utf8"));
+      }
+      res.send(js);
     } catch (e) {
       console.error("spaces manifest:", e);
-      res.status(500).type("application/javascript").send("window.TRIPS=[];window.TOGETHER_SINCE=null;");
+      res.status(500).send("window.TRIPS=[];window.TOGETHER_SINCE=null;");
     }
   });
 }
