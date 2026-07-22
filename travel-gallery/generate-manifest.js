@@ -133,7 +133,6 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       const derived = path.basename(f, path.extname(f))
         .replace(/[-_]+/g, " ")
         .replace(/\b(img|dsc|pxl|screenshot)\s*\d*\b/gi, "")
-        .replace(/\s[a-z0-9]{8}$/i, "") // strip the upload timestamp suffix
         .trim();
       const prev = keepCaption.get(f);
       const humanEdited = prev && prev !== derived && prev !== (uploadsMeta[f] && uploadsMeta[f].caption);

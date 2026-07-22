@@ -134,8 +134,125 @@ const cloudUpload = multer({
   fileFilter: imageFilter,
 });
 
+// ---------- auto-sort for local mode: cluster in memory, file to disk ----------
+async function localAutoSort({ files, caption, browserCoords }) {
+  const autosort = require("./autosort");
+  let exifr = null;
+  try { exifr = require("exifr"); } catch {}
+
+  const items = [];
+  for (const f of files) {
+    const item = { file: f, taken: null, coords: null };
+    if (exifr) {
+      try {
+        const ex = await exifr.parse(f.buffer, { pick: ["DateTimeOriginal", "latitude", "longitude"] });
+        if (ex) {
+          if (ex.DateTimeOriginal) item.taken = new Date(ex.DateTimeOriginal).toISOString();
+          if (typeof ex.latitude === "number") item.coords = [+ex.latitude.toFixed(5), +ex.longitude.toFixed(5)];
+        }
+      } catch {}
+    }
+    if (!item.coords && browserCoords) item.coords = browserCoords;
+    items.push(item);
+  }
+
+  // reuse the generator's Nominatim flow via a minimal inline geocoder + shared cache file
+  const GEOCACHE = path.join(ROOT, ".geocache.json");
+  let cache = {};
+  try { cache = JSON.parse(fs.readFileSync(GEOCACHE, "utf8")); } catch {}
+  const https = require("https");
+  const geocode = ([lat, lon]) => new Promise((resolve) => {
+    const k = `${lat.toFixed(2)},${lon.toFixed(2)}`;
+    if (cache[k] !== undefined) return resolve(cache[k]);
+    const r = https.get(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=10&accept-language=en`,
+      { headers: { "User-Agent": "wanderlight-gallery/1.0 (personal travel site)" } }, (res) => {
+        let b = ""; res.on("data", (c) => (b += c));
+        res.on("end", () => {
+          try {
+            const a = JSON.parse(b).address || {};
+            cache[k] = [a.city || a.town || a.village || a.municipality || a.county, a.country].filter(Boolean).join(", ") || null;
+          } catch { cache[k] = null; }
+          fs.writeFileSync(GEOCACHE, JSON.stringify(cache, null, 1));
+          resolve(cache[k]);
+        });
+      });
+    r.on("error", () => resolve(null));
+    r.setTimeout(8000, () => { r.destroy(); resolve(null); });
+  });
+
+  // existing trips (from photos.js) for merge decisions
+  let existing = [];
+  try {
+    const sandbox = {};
+    new Function("window", fs.readFileSync(path.join(ROOT, "photos.js"), "utf8"))(sandbox);
+    existing = (sandbox.TRIPS || []).filter((t) => t.photos.some((p) => !p.src.startsWith("demo-photos/")));
+    for (const t of existing) {
+      const m = (t.photos[0] && (t.photos[0].full || t.photos[0].src).match(/^photos\/([^/]+)\//));
+      t.folder = m ? m[1] : null;
+    }
+  } catch {}
+
+  const meta = (() => { try { return JSON.parse(fs.readFileSync(path.join(ROOT, ".uploads-meta.json"), "utf8")); } catch { return {}; } })();
+  const clusters = require("./autosort").cluster(items);
+  const summary = [];
+
+  for (const c of clusters) {
+    const home = autosort.findHome(c, existing);
+    let folder = home && home.folder;
+    if (!folder) {
+      const named = await autosort.nameCluster(c, geocode);
+      folder = named.folder;
+    }
+    const dest = path.join(PHOTOS_DIR, folder);
+    fs.mkdirSync(dest, { recursive: true });
+    for (const it of c.items) {
+      const f = it.file;
+      const ext = IMG_TYPES[f.mimetype] || ".jpg";
+      const base = slug(caption) || slug(path.basename(f.originalname, path.extname(f.originalname))) || "moment";
+      const name = `${base}-${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36)}${ext}`;
+      fs.writeFileSync(path.join(dest, name), f.buffer);
+      meta[name] = {
+        uploaded: new Date().toISOString(),
+        caption: caption ? String(caption).slice(0, 140) : base.replace(/-/g, " ") || "a moment",
+        ...(it.coords ? { coords: it.coords } : {}),
+      };
+    }
+    summary.push({ trip: folder.replace(/^\d{4}-\d{2}\s+/, ""), count: c.items.length, isNew: !home });
+  }
+
+  saveMeta(meta);
+  await regenerate();
+  return summary;
+}
+
 app.post("/api/upload", (req, res) => {
   if (!checkKey(req, res)) return;
+
+  // ✨ magic mode: no trip chosen — the librarian sorts everything itself
+  if (req.query.trip === "__auto__") {
+    return cloudUpload.array("photos")(req, res, async (err) => {
+      if (err) return res.status(400).json({ error: err.message });
+      if (!req.files || !req.files.length) return res.status(400).json({ error: "no photos received" });
+      const lat = parseFloat(req.query.lat), lon = parseFloat(req.query.lon);
+      const args = {
+        files: req.files,
+        caption: req.query.caption ? String(req.query.caption).slice(0, 140) : "",
+        browserCoords: Number.isFinite(lat) && Number.isFinite(lon) ? [+lat.toFixed(5), +lon.toFixed(5)] : null,
+      };
+      try {
+        const summary = CLOUD ? await spaces.autoAddPhotos(args) : await localAutoSort(args);
+        res.json({
+          saved: summary.reduce((n, s) => n + s.count, 0),
+          auto: true, summary, regenerated: true,
+          trip: summary.map((s) => `${s.trip} ×${s.count}`).join(", "),
+        });
+      } catch (e) {
+        console.error("auto-sort:", e);
+        res.status(500).json({ error: "auto-sort failed — check server logs" });
+      }
+    });
+  }
+
   if (CLOUD) {
     return cloudUpload.array("photos")(req, res, async (err) => {
       if (err) return res.status(400).json({ error: err.message });
@@ -165,10 +282,13 @@ app.post("/api/upload", (req, res) => {
     const meta = loadMeta();
     const lat = parseFloat(req.query.lat), lon = parseFloat(req.query.lon);
     for (const f of req.files) {
+      const clean = req.query.caption
+        ? String(req.query.caption).slice(0, 140)
+        : slug(path.basename(f.originalname, path.extname(f.originalname))).replace(/-/g, " ") || "a moment";
       meta[f.filename] = {
         uploaded: new Date().toISOString(),
+        caption: clean,
         ...(Number.isFinite(lat) && Number.isFinite(lon) ? { coords: [+lat.toFixed(5), +lon.toFixed(5)] } : {}),
-        ...(req.query.caption ? { caption: String(req.query.caption).slice(0, 140) } : {}),
       };
     }
     saveMeta(meta);

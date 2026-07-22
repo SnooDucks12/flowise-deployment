@@ -104,3 +104,12 @@ See [`deploy/README.md`](deploy/README.md) — one command provisions Spaces
 (250 GB photo storage + CDN, $5/mo) and optionally the App Platform server
 ($5/mo). With `SPACES_*` env vars set, `npm start` switches to cloud mode
 automatically; without them everything runs from the local folder as before.
+
+## ✨ The intelligent librarian (auto-sort)
+
+The upload page's default mode is **"let the stars sort it"**: dump in your
+whole camera roll and the server reads every photo's timestamp and GPS,
+clusters them into trips (a gap of 3+ quiet days or a 300 km jump starts a
+new one), names each trip after where it actually happened, and files late
+additions into their existing trip automatically. Big batches upload in
+chunks, so hundreds of photos at once are fine.

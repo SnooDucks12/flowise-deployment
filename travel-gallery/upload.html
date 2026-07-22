@@ -150,7 +150,12 @@ let needsKey = false;
 
 function setStatus(msg, cls) { statusEl.textContent = msg; statusEl.className = "status " + (cls || ""); }
 
-/* trips */
+/* trips — magic auto-sort is the default */
+const auto = document.createElement("option");
+auto.value = "__auto__";
+auto.textContent = "✨ let the stars sort it (recommended)";
+tripSel.appendChild(auto);
+
 fetch("/api/trips").then((r) => r.json()).then((d) => {
   needsKey = d.protected;
   for (const t of d.trips) {
@@ -162,14 +167,20 @@ fetch("/api/trips").then((r) => r.json()).then((d) => {
   n.value = "__new__";
   n.textContent = "✧ a brand new journey…";
   tripSel.appendChild(n);
-  if (!d.trips.length) { tripSel.value = "__new__"; tripSel.dispatchEvent(new Event("change")); }
+  tripSel.dispatchEvent(new Event("change"));
 }).catch(() => setStatus("can't reach the server — is npm start running?", "err"));
 
 tripSel.addEventListener("change", () => {
   const isNew = tripSel.value === "__new__";
   newTrip.style.display = isNew ? "block" : "none";
-  tripHint.textContent = isNew ? "The date is added automatically (this month). To backdate, type e.g. “2024-06 Amalfi Coast”." : "";
+  tripHint.textContent =
+    tripSel.value === "__auto__"
+      ? "Dump in everything — photo dates & GPS decide the trips, each named after where it happened. Late additions join their trip automatically."
+      : isNew
+        ? "The date is added automatically (this month). To backdate, type e.g. “2024-06 Amalfi Coast”."
+        : "";
 });
+tripSel.dispatchEvent(new Event("change"));
 
 /* location */
 locBtn.addEventListener("click", () => {
@@ -218,47 +229,70 @@ function getKey() {
   return k;
 }
 
-/* send */
-sendBtn.addEventListener("click", () => {
-  const trip = tripSel.value === "__new__" ? newTrip.value.trim() : tripSel.value;
-  if (!trip) return setStatus("give the journey a name first", "err");
+/* send — big batches go up in chunks so hundreds of photos work on any connection */
+const CHUNK = 12;
 
+function sendChunk(chunk, q, done, progressBase, progressSpan) {
   const fd = new FormData();
-  files.forEach((f) => fd.append("photos", f));
-  const q = new URLSearchParams({ trip });
-  if (captionEl.value.trim()) q.set("caption", captionEl.value.trim());
-  if (coords) { q.set("lat", coords[0]); q.set("lon", coords[1]); }
-
+  chunk.forEach((f) => fd.append("photos", f));
   const xhr = new XMLHttpRequest();
   xhr.open("POST", "/api/upload?" + q.toString());
   const key = getKey();
   if (key) xhr.setRequestHeader("X-Upload-Key", key);
+  xhr.upload.onprogress = (e) => {
+    if (e.lengthComputable) barFill.style.width = (progressBase + (e.loaded / e.total) * progressSpan) * 100 + "%";
+  };
+  xhr.onload = () => done(null, xhr);
+  xhr.onerror = () => done(new Error("network hiccup"));
+  xhr.send(fd);
+}
+
+sendBtn.addEventListener("click", async () => {
+  const trip = tripSel.value === "__new__" ? newTrip.value.trim() : tripSel.value;
+  if (!trip) return setStatus("give the journey a name first", "err");
+
+  const q = new URLSearchParams({ trip });
+  if (captionEl.value.trim()) q.set("caption", captionEl.value.trim());
+  if (coords) { q.set("lat", coords[0]); q.set("lon", coords[1]); }
+
+  const chunks = [];
+  for (let i = 0; i < files.length; i += CHUNK) chunks.push(files.slice(i, i + CHUNK));
 
   sendBtn.disabled = true;
   bar.classList.add("show");
-  setStatus("travelling through space…");
-  xhr.upload.onprogress = (e) => { if (e.lengthComputable) barFill.style.width = (e.loaded / e.total) * 92 + "%"; };
-  xhr.onload = () => {
-    bar.classList.remove("show");
-    barFill.style.width = "0%";
-    if (xhr.status === 200) {
-      const r = JSON.parse(xhr.responseText);
-      setStatus(`${r.saved} memor${r.saved > 1 ? "ies" : "y"} added to “${r.trip}” 💛`, "ok");
-      files = []; renderPreviews(); captionEl.value = "";
-      celebrate();
-    } else if (xhr.status === 401) {
+  let saved = 0;
+  const tripCounts = {};
+
+  for (let i = 0; i < chunks.length; i++) {
+    setStatus(chunks.length > 1 ? `travelling through space… batch ${i + 1} of ${chunks.length}` : "travelling through space…");
+    const result = await new Promise((resolve) =>
+      sendChunk(chunks[i], q, (err, xhr) => resolve({ err, xhr }), i / chunks.length, 1 / chunks.length)
+    );
+    if (result.err) { bar.classList.remove("show"); sendBtn.disabled = false; return setStatus("network hiccup — try again", "err"); }
+    const xhr = result.xhr;
+    if (xhr.status === 401) {
       localStorage.removeItem("wanderlight-key");
-      setStatus("wrong secret word — try again", "err");
-      sendBtn.disabled = false;
-    } else {
+      bar.classList.remove("show"); sendBtn.disabled = false;
+      return setStatus("wrong secret word — try again", "err");
+    }
+    if (xhr.status !== 200) {
       let msg = "something went wrong";
       try { msg = JSON.parse(xhr.responseText).error || msg; } catch {}
-      setStatus(msg, "err");
-      sendBtn.disabled = false;
+      bar.classList.remove("show"); sendBtn.disabled = false;
+      return setStatus(msg, "err");
     }
-  };
-  xhr.onerror = () => { bar.classList.remove("show"); setStatus("network hiccup — try again", "err"); sendBtn.disabled = false; };
-  xhr.send(fd);
+    const r = JSON.parse(xhr.responseText);
+    saved += r.saved;
+    if (r.auto && r.summary) for (const s of r.summary) tripCounts[s.trip] = (tripCounts[s.trip] || 0) + s.count;
+    else tripCounts[r.trip] = (tripCounts[r.trip] || 0) + r.saved;
+  }
+
+  bar.classList.remove("show");
+  barFill.style.width = "0%";
+  const parts = Object.entries(tripCounts).map(([t, n]) => `${t} ×${n}`).join(" · ");
+  setStatus(`${saved} memor${saved > 1 ? "ies" : "y"} filed ✨ ${parts} 💛`, "ok");
+  files = []; renderPreviews(); captionEl.value = "";
+  celebrate();
 });
 
 function celebrate() {
