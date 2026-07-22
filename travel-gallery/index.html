@@ -198,6 +198,27 @@
     margin-top: 0.35rem;
   }
 
+  .hero .add-btn {
+    margin-top: 2.2rem;
+    display: inline-block;
+    font-family: var(--sans);
+    font-weight: 500;
+    font-size: 0.9rem;
+    letter-spacing: 0.06em;
+    color: #17091a;
+    background: linear-gradient(120deg, var(--rose), var(--violet));
+    border-radius: 99px;
+    padding: 0.85rem 1.8rem;
+    text-decoration: none;
+    animation: rise 1.2s var(--ease-out) both 1.3s;
+    transition: transform 0.3s var(--ease-out), box-shadow 0.3s;
+  }
+  .hero .add-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 16px 44px -14px color-mix(in srgb, var(--rose) 55%, transparent);
+  }
+  .hero .add-btn[hidden] { display: none; }
+
   .scroll-hint {
     position: absolute;
     bottom: max(2rem, env(safe-area-inset-bottom));
@@ -678,6 +699,8 @@
       <div class="stat"><div class="num" id="statPhotos">—</div><div class="label">moments kept</div></div>
     </div>
 
+    <a class="add-btn" id="addBtn" href="upload" hidden>📸 add our memories</a>
+
     <div class="scroll-hint">begin</div>
   </header>
 
@@ -1055,8 +1078,13 @@ lb.addEventListener("touchend", (e) => {
 
 /* ---------- upload button (only when the server is running) ---------- */
 fetch("api/trips", { method: "GET" })
-  .then((r) => { if (r.ok) document.getElementById("camBtn").hidden = false; })
-  .catch(() => {}); // static hosting (no server) — button stays hidden
+  .then((r) => {
+    if (r.ok) {
+      document.getElementById("camBtn").hidden = false;
+      document.getElementById("addBtn").hidden = false;
+    }
+  })
+  .catch(() => {}); // static hosting (no server) — upload buttons stay hidden
 
 /* ---------- hearts easter egg ---------- */
 const HEARTS = ["💗", "✨", "🌸", "💫", "🩷", "⭐"];
