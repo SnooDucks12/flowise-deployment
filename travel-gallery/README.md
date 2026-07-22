@@ -97,3 +97,10 @@ window.TOGETHER_SINCE = "2023-06-01"; // powers the "days of us" counter
 - Honors `prefers-reduced-motion`.
 - Everything is one HTML file + one manifest — easy to host anywhere
   (GitHub Pages, Netlify drop, a USB stick).
+
+## ☁ Going live on DigitalOcean
+
+See [`deploy/README.md`](deploy/README.md) — one command provisions Spaces
+(250 GB photo storage + CDN, $5/mo) and optionally the App Platform server
+($5/mo). With `SPACES_*` env vars set, `npm start` switches to cloud mode
+automatically; without them everything runs from the local folder as before.
