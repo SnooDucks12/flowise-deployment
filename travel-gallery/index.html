@@ -618,10 +618,30 @@
     transition: transform 0.4s var(--ease-out), opacity 0.3s;
   }
   .moon-btn:hover { transform: rotate(-16deg) scale(1.15); opacity: 1; }
+
+  .cam-btn {
+    position: fixed;
+    top: max(1rem, env(safe-area-inset-top));
+    right: 3.4rem;
+    z-index: 30;
+    font-size: 1.35rem;
+    text-decoration: none;
+    opacity: 0.75;
+    transition: transform 0.4s var(--ease-out), opacity 0.3s;
+  }
+  .cam-btn:hover { transform: scale(1.15); opacity: 1; }
+  .cam-btn[hidden] { display: none; }
+
   @media (max-width: 640px) {
     .moon-btn {
       top: auto;
       bottom: max(1.1rem, env(safe-area-inset-bottom));
+      filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.8));
+    }
+    .cam-btn {
+      top: auto;
+      bottom: max(1.1rem, env(safe-area-inset-bottom));
+      right: 3.6rem;
       filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.8));
     }
   }
@@ -639,6 +659,7 @@
 <div class="grain" aria-hidden="true"></div>
 
 <button class="moon-btn" id="moonBtn" title="a little magic" aria-label="Release hearts">🌙</button>
+<a class="cam-btn" id="camBtn" href="upload" title="add a memory" aria-label="Add photos" hidden>📸</a>
 
 <main>
   <!-- ================= HERO ================= -->
@@ -1031,6 +1052,11 @@ lb.addEventListener("touchend", (e) => {
     svg.appendChild(g);
   });
 })();
+
+/* ---------- upload button (only when the server is running) ---------- */
+fetch("api/trips", { method: "GET" })
+  .then((r) => { if (r.ok) document.getElementById("camBtn").hidden = false; })
+  .catch(() => {}); // static hosting (no server) — button stays hidden
 
 /* ---------- hearts easter egg ---------- */
 const HEARTS = ["💗", "✨", "🌸", "💫", "🩷", "⭐"];
