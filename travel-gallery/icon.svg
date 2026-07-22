@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="bg" cx="0.68" cy="0.3" r="1.1">
+      <stop offset="0" stop-color="#1b1433"/>
+      <stop offset="0.55" stop-color="#100e20"/>
+      <stop offset="1" stop-color="#0a0a14"/>
+    </radialGradient>
+    <radialGradient id="roseGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ff9ecb" stop-opacity="0.32"/>
+      <stop offset="1" stop-color="#ff9ecb" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="moon" x1="0.15" y1="0.1" x2="0.85" y2="0.95">
+      <stop offset="0" stop-color="#ffb3d6"/>
+      <stop offset="0.45" stop-color="#ff9ecb"/>
+      <stop offset="1" stop-color="#a78bfa"/>
+    </linearGradient>
+    <mask id="crescent">
+      <rect width="1024" height="1024" fill="black"/>
+      <circle cx="512" cy="512" r="285" fill="white"/>
+      <circle cx="640" cy="415" r="252" fill="black"/>
+    </mask>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="34"/>
+    </filter>
+  </defs>
+
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <circle cx="440" cy="580" r="480" fill="url(#roseGlow)"/>
+  <circle cx="286" cy="869" r="6.7" fill="#eceaf6" opacity="0.71"/><circle cx="123" cy="819" r="5.2" fill="#eceaf6" opacity="0.28"/><circle cx="139" cy="930" r="8.8" fill="#eceaf6" opacity="0.52"/><circle cx="159" cy="727" r="8.0" fill="#eceaf6" opacity="0.43"/><circle cx="235" cy="928" r="3.7" fill="#eceaf6" opacity="0.48"/><circle cx="474" cy="173" r="3.7" fill="#eceaf6" opacity="0.56"/><circle cx="748" cy="153" r="6.6" fill="#eceaf6" opacity="0.71"/>
+
+  <!-- soft glow behind the crescent -->
+  <g mask="url(#crescent)" filter="url(#soft)" opacity="0.85">
+    <rect width="1024" height="1024" fill="url(#moon)"/>
+  </g>
+  <!-- the crescent itself -->
+  <g mask="url(#crescent)">
+    <rect width="1024" height="1024" fill="url(#moon)"/>
+  </g>
+
+  <!-- one little gold star, like the site's ✦ -->
+  <g transform="translate(676,330)" fill="#f5d99b">
+    <path d="M0,-46 C4,-14 14,-4 46,0 C14,4 4,14 0,46 C-4,14 -14,4 -46,0 C-14,-4 -4,-14 0,-46 Z"/>
+  </g>
+</svg>
