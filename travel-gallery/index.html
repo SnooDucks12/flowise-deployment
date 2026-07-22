@@ -588,6 +588,14 @@
     text-transform: none;
     fill: color-mix(in srgb, var(--ink-dim) 70%, transparent);
   }
+  .skymap .const-star .chrono-num {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: none;
+    fill: color-mix(in srgb, var(--gold) 65%, transparent);
+  }
   @keyframes halo-pulse {
     0%, 100% { opacity: 0.15; transform: scale(1); }
     50% { opacity: 0.5; transform: scale(1.35); }
@@ -723,12 +731,6 @@
     <div class="scroll-hint">begin</div>
   </header>
 
-  <!-- ================= FILTERS ================= -->
-  <nav class="filters" id="filters" aria-label="Filter journeys"></nav>
-
-  <!-- ================= CHAPTERS ================= -->
-  <section class="chapters" id="chapters"></section>
-
   <!-- ================= CONSTELLATION ================= -->
   <section class="skymap" id="skymap" hidden>
     <h2>The map of us</h2>
@@ -746,6 +748,12 @@
       </defs>
     </svg>
   </section>
+
+  <!-- ================= FILTERS ================= -->
+  <nav class="filters" id="filters" aria-label="Filter journeys"></nav>
+
+  <!-- ================= CHAPTERS ================= -->
+  <section class="chapters" id="chapters"></section>
 
   <!-- ================= FOOTER ================= -->
   <footer>
@@ -1064,21 +1072,34 @@ lb.addEventListener("touchend", (e) => {
     svg.appendChild(path);
   }
 
+  // big trips shine brighter — star size scales with how many moments live there
+  const maxCount = Math.max(...chrono.map((t) => t.photos.length), 1);
+  const shine = (t) => Math.sqrt(t.photos.length / maxCount); // 0..1, gentle curve
+
   chrono.forEach((t, i) => {
     const [x, y] = pts[i];
+    const s = shine(t);
+    const core = (3.5 + 5 * s).toFixed(1);
+    const halo = (7 + 9 * s).toFixed(1);
+    const glow = (20 + 36 * s).toFixed(0);
     const g = document.createElementNS(NS, "g");
     g.setAttribute("class", "const-star");
     g.setAttribute("role", "link");
     g.setAttribute("tabindex", "0");
-    g.setAttribute("aria-label", `Go to ${t.title}`);
+    g.setAttribute("aria-label", `Go to ${t.title} — ${t.photos.length} moments`);
     const labelAbove = y > H / 2;
+    const labelGap = 14 + 9 * s; // labels step back as the star grows
     g.innerHTML =
-      `<circle cx="${x}" cy="${y}" r="26" fill="url(#starGlow)"/>` +
-      `<circle class="halo" cx="${x}" cy="${y}" r="9"/>` +
-      `<circle class="core" cx="${x}" cy="${y}" r="4"/>` +
-      `<text x="${x}" y="${labelAbove ? y - 22 : y + 30}" text-anchor="middle">${t.title}</text>` +
+      `<title>${t.title} · ${t.photos.length} moment${t.photos.length === 1 ? "" : "s"}</title>` +
+      `<circle cx="${x}" cy="${y}" r="${glow}" fill="url(#starGlow)" opacity="${(0.55 + 0.45 * s).toFixed(2)}"/>` +
+      `<circle class="halo" cx="${x}" cy="${y}" r="${halo}"/>` +
+      `<circle class="core" cx="${x}" cy="${y}" r="${core}"/>` +
+      (chrono.length > 1
+        ? `<text class="chrono-num" x="${x}" y="${labelAbove ? y + labelGap + 22 : y - labelGap - 12}" text-anchor="middle">${String(i + 1).padStart(2, "0")}</text>`
+        : "") +
+      `<text x="${x}" y="${labelAbove ? y - labelGap - 8 : y + labelGap + 16}" text-anchor="middle">${t.title}</text>` +
       (t.place || t.location
-        ? `<text class="place-lbl" x="${x}" y="${labelAbove ? y - 36 : y + 44}" text-anchor="middle">${t.place || t.location}</text>`
+        ? `<text class="place-lbl" x="${x}" y="${labelAbove ? y - labelGap - 22 : y + labelGap + 30}" text-anchor="middle">${t.place || t.location}</text>`
         : "");
     const go = () => {
       const target = document.querySelector(`.chapter[data-id="${t.id}"]`);
