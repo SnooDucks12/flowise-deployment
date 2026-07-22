@@ -267,6 +267,24 @@
     font-weight: 500;
   }
 
+  .sort-btn {
+    flex: 0 0 auto;
+    margin-left: auto;
+    font-family: var(--sans);
+    font-weight: 400;
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    color: var(--gold);
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--gold) 30%, transparent);
+    border-radius: 99px;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    transition: all 0.35s var(--ease-out);
+    white-space: nowrap;
+  }
+  .sort-btn:hover { border-color: var(--gold); transform: translateY(-1px); }
+
   /* ---------- chapters ---------- */
   .chapters { padding: clamp(3rem, 8vw, 6rem) clamp(1rem, 5vw, 4rem) 4rem; }
 
@@ -467,6 +485,76 @@
     .lb-prev, .lb-next { display: none; } /* swipe instead */
   }
 
+  /* ---------- constellation map ---------- */
+  .skymap {
+    padding: clamp(3rem, 8vw, 6rem) clamp(1rem, 5vw, 4rem);
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  .skymap h2 {
+    font-family: var(--serif);
+    font-weight: 380;
+    font-size: clamp(1.9rem, 5.5vw, 3.2rem);
+    text-align: center;
+    letter-spacing: -0.015em;
+  }
+  .skymap .sub {
+    text-align: center;
+    font-family: var(--serif);
+    font-style: italic;
+    color: var(--ink-dim);
+    margin-top: 0.6rem;
+    font-size: clamp(0.9rem, 2.4vw, 1.1rem);
+  }
+  .skymap svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    margin-top: 2rem;
+    overflow: visible;
+  }
+  .skymap .const-line {
+    fill: none;
+    stroke: url(#constGrad);
+    stroke-width: 1;
+    stroke-dasharray: 3 6;
+    opacity: 0.55;
+  }
+  .skymap .const-star { cursor: pointer; }
+  .skymap .const-star circle.core { fill: #fff; transition: r 0.3s var(--ease-out); }
+  .skymap .const-star circle.halo {
+    fill: none;
+    stroke: var(--rose);
+    stroke-width: 1;
+    opacity: 0.35;
+    animation: halo-pulse 3.4s ease-in-out infinite;
+  }
+  .skymap .const-star:hover circle.core { r: 6; }
+  .skymap .const-star text {
+    font-family: var(--sans);
+    font-size: 10.5px;
+    font-weight: 400;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    fill: var(--ink-dim);
+    transition: fill 0.3s ease;
+  }
+  .skymap .const-star:hover text { fill: var(--rose); }
+  .skymap .const-star .place-lbl {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: none;
+    fill: color-mix(in srgb, var(--ink-dim) 70%, transparent);
+  }
+  @keyframes halo-pulse {
+    0%, 100% { opacity: 0.15; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(1.35); }
+  }
+  .skymap .const-star { transform-box: fill-box; }
+  .skymap .const-star circle.halo { transform-origin: center; transform-box: fill-box; }
+
   /* ---------- footer ---------- */
   footer {
     position: relative;
@@ -577,6 +665,24 @@
 
   <!-- ================= CHAPTERS ================= -->
   <section class="chapters" id="chapters"></section>
+
+  <!-- ================= CONSTELLATION ================= -->
+  <section class="skymap" id="skymap" hidden>
+    <h2>The map of us</h2>
+    <p class="sub">every trip a star — the line our story draws across the earth</p>
+    <svg id="skymapSvg" viewBox="0 0 1000 520" role="img" aria-label="Constellation map of our trips">
+      <defs>
+        <linearGradient id="constGrad" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#ff9ecb" />
+          <stop offset="1" stop-color="#a78bfa" />
+        </linearGradient>
+        <radialGradient id="starGlow" cx="0.5" cy="0.5" r="0.5">
+          <stop offset="0" stop-color="#ff9ecb" stop-opacity="0.55" />
+          <stop offset="1" stop-color="#ff9ecb" stop-opacity="0" />
+        </radialGradient>
+      </defs>
+    </svg>
+  </section>
 
   <!-- ================= FOOTER ================= -->
   <footer>
@@ -720,6 +826,20 @@ function makeChip(label, id) {
 filtersEl.appendChild(makeChip("All of it ✦", "all"));
 trips.forEach((t) => filtersEl.appendChild(makeChip(t.title, t.id)));
 
+/* sort toggle — flips chapter order between newest- and oldest-first */
+let newestFirst = true;
+const sortBtn = document.createElement("button");
+sortBtn.className = "sort-btn";
+sortBtn.textContent = "newest ↓";
+sortBtn.title = "Flip the order of the journeys";
+sortBtn.addEventListener("click", () => {
+  newestFirst = !newestFirst;
+  sortBtn.textContent = newestFirst ? "newest ↓" : "oldest ↑";
+  const chapters = [...chaptersEl.children].reverse();
+  chapters.forEach((c) => chaptersEl.appendChild(c));
+});
+filtersEl.appendChild(sortBtn);
+
 /* ---------- chapters + masonry ---------- */
 const chaptersEl = document.getElementById("chapters");
 trips.forEach((t, ti) => {
@@ -744,7 +864,7 @@ trips.forEach((t, ti) => {
       <img src="${p.src}" alt="${p.caption || t.title}" loading="lazy" decoding="async" />
       <div class="veil">
         <div class="cap">${p.caption || ""}</div>
-        <div class="loc">${t.location || t.title}</div>
+        <div class="loc">${p.place || t.location || t.title}</div>
       </div>`;
     tile.addEventListener("click", (e) => { e.preventDefault(); openLightbox(idx); });
     grid.appendChild(tile);
@@ -786,20 +906,26 @@ function closeLightbox() {
 function render() {
   const p = allPhotos[current];
   if (!p) return;
+  const full = p.full || p.src; // original resolution when the generator made a web copy
   lbImg.classList.remove("show");
   const pre = new Image();
   pre.onload = () => {
-    lbImg.src = p.src;
+    lbImg.src = full;
     lbImg.alt = p.caption || p.trip.title;
     requestAnimationFrame(() => lbImg.classList.add("show"));
   };
-  pre.src = p.src;
+  pre.src = full;
   lbCap.textContent = p.caption || "";
-  lbMeta.textContent = [p.trip.location || p.trip.title, p.trip.date].filter(Boolean).join(" · ");
+  // per-photo metadata (EXIF place · exact date · camera) with trip fallbacks
+  lbMeta.textContent = [
+    p.place || p.trip.place || p.trip.location || p.trip.title,
+    p.date || p.trip.date,
+    p.camera,
+  ].filter(Boolean).join(" · ");
   lbCount.textContent = `${current + 1} / ${allPhotos.length}`;
   // preload neighbours for buttery swiping
   [current + 1, current - 1].forEach((n) => {
-    if (allPhotos[n]) new Image().src = allPhotos[n].src;
+    if (allPhotos[n]) new Image().src = allPhotos[n].full || allPhotos[n].src;
   });
 }
 function step(d) {
@@ -831,6 +957,80 @@ lb.addEventListener("touchend", (e) => {
   else if (dy > 90 && Math.abs(dy) > Math.abs(dx)) closeLightbox(); // swipe down to dismiss
   tx = ty = null;
 }, { passive: true });
+
+/* ---------- constellation map (from GPS metadata) ---------- */
+(function skymap() {
+  const withCoords = trips.filter((t) => Array.isArray(t.coords));
+  if (withCoords.length === 0) return; // no GPS data yet — section stays hidden
+  document.getElementById("skymap").hidden = false;
+
+  const svg = document.getElementById("skymapSvg");
+  const NS = "http://www.w3.org/2000/svg";
+  const W = 1000, H = 520, PAD = 90;
+
+  // fit lat/lon bounding box into the viewport (equirectangular)
+  const lats = withCoords.map((t) => t.coords[0]);
+  const lons = withCoords.map((t) => t.coords[1]);
+  const latMin = Math.min(...lats), latMax = Math.max(...lats);
+  const lonMin = Math.min(...lons), lonMax = Math.max(...lons);
+  const latSpan = Math.max(latMax - latMin, 4);
+  const lonSpan = Math.max(lonMax - lonMin, 4);
+  const project = ([lat, lon]) => [
+    PAD + ((lon - lonMin + (lonSpan - (lonMax - lonMin)) / 2) / lonSpan) * (W - PAD * 2),
+    PAD + ((latMax - lat + (latSpan - (latMax - latMin)) / 2) / latSpan) * (H - PAD * 2),
+  ];
+
+  // faint background stars
+  for (let i = 0; i < 70; i++) {
+    const s = document.createElementNS(NS, "circle");
+    s.setAttribute("cx", Math.random() * W);
+    s.setAttribute("cy", Math.random() * H);
+    s.setAttribute("r", Math.random() * 1.2 + 0.3);
+    s.setAttribute("fill", "#eceaf6");
+    s.setAttribute("opacity", (0.08 + Math.random() * 0.2).toFixed(2));
+    svg.appendChild(s);
+  }
+
+  // chronological line, oldest → newest (trips array is newest-first)
+  const chrono = [...withCoords].reverse();
+  const pts = chrono.map((t) => project(t.coords));
+  if (pts.length > 1) {
+    const path = document.createElementNS(NS, "path");
+    path.setAttribute("class", "const-line");
+    path.setAttribute("d", pts.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(" "));
+    svg.appendChild(path);
+  }
+
+  chrono.forEach((t, i) => {
+    const [x, y] = pts[i];
+    const g = document.createElementNS(NS, "g");
+    g.setAttribute("class", "const-star");
+    g.setAttribute("role", "link");
+    g.setAttribute("tabindex", "0");
+    g.setAttribute("aria-label", `Go to ${t.title}`);
+    const labelAbove = y > H / 2;
+    g.innerHTML =
+      `<circle cx="${x}" cy="${y}" r="26" fill="url(#starGlow)"/>` +
+      `<circle class="halo" cx="${x}" cy="${y}" r="9"/>` +
+      `<circle class="core" cx="${x}" cy="${y}" r="4"/>` +
+      `<text x="${x}" y="${labelAbove ? y - 22 : y + 30}" text-anchor="middle">${t.title}</text>` +
+      (t.place || t.location
+        ? `<text class="place-lbl" x="${x}" y="${labelAbove ? y - 36 : y + 44}" text-anchor="middle">${t.place || t.location}</text>`
+        : "");
+    const go = () => {
+      const target = document.querySelector(`.chapter[data-id="${t.id}"]`);
+      if (target) {
+        document.querySelectorAll(".chapter").forEach((c) => c.classList.remove("hidden"));
+        filtersEl.querySelectorAll(".chip").forEach((c) => c.classList.toggle("active", c.dataset.id === "all"));
+        revealVisible();
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    };
+    g.addEventListener("click", go);
+    g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+    svg.appendChild(g);
+  });
+})();
 
 /* ---------- hearts easter egg ---------- */
 const HEARTS = ["💗", "✨", "🌸", "💫", "🩷", "⭐"];

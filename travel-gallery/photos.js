@@ -25,6 +25,7 @@ window.TOGETHER_SINCE = "2023-06-01"; // ← change to your date, Liina & Ralf!
 window.TRIPS = [
   {
     id: "lapland",
+    coords: [67.9222, 26.5046],
     title: "Chasing the Aurora",
     location: "Lapland, Finland",
     date: "Jan 2025",
@@ -39,6 +40,7 @@ window.TRIPS = [
   },
   {
     id: "amalfi",
+    coords: [40.6281, 14.4850],
     title: "Lemon Summer",
     location: "Amalfi Coast, Italy",
     date: "Jun 2024",
@@ -54,6 +56,7 @@ window.TRIPS = [
   },
   {
     id: "tokyo",
+    coords: [35.6762, 139.6503],
     title: "Neon Dreams",
     location: "Tokyo, Japan",
     date: "Oct 2024",
@@ -68,6 +71,7 @@ window.TRIPS = [
   },
   {
     id: "iceland",
+    coords: [63.9850, -19.0208],
     title: "Edge of the World",
     location: "Iceland",
     date: "Apr 2025",
