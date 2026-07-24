@@ -237,7 +237,12 @@ async function addPhotos({ folder, files, caption, browserCoords }) {
     trip.coords = generic ? undefined : (await forwardGeocode(nameForGeo)) || undefined;
     if (!trip.coords) delete trip.coords;
   }
-  manifest.trips.sort((a, b) => (b.sortKey || "").localeCompare(a.sortKey || ""));
+  // newest-first by the moment each trip actually began (first photo), not by upload order
+  const anchor = (t) => {
+    const ts = t.photos.map((p) => p.taken).filter(Boolean).sort();
+    return ts[0] || ((t.sortKey || "0000-00") + "-15");
+  };
+  manifest.trips.sort((a, b) => anchor(b).localeCompare(anchor(a)));
 
   await saveManifest(manifest);
   return { added, skipped, trip: folder };
@@ -280,6 +285,15 @@ async function autoAddPhotos({ files, caption, browserCoords }) {
 
   // 2. cluster into trips, merge into existing ones where they belong
   const clusters = autosort.cluster(items);
+  // an undated batch that the humans named is "now": file it under the
+  // current month and stamp upload time, so it sits truly in the story
+  for (const c of clusters) {
+    if (c.start == null && caption && caption.trim()) {
+      const now = new Date();
+      c.start = c.end = now.getTime();
+      for (const it of c.items) if (!it.taken) it.taken = now.toISOString();
+    }
+  }
   const summary = [];
   if (skipped) summary.push({ trip: "already there — skipped", count: 0, skipped, isNew: false });
 
@@ -380,7 +394,12 @@ async function addPhotosToFolder({ manifest, folder, tripMeta, files, exif, capt
     trip.coords = generic ? undefined : (await forwardGeocode(nameForGeo)) || undefined;
     if (!trip.coords) delete trip.coords;
   }
-  manifest.trips.sort((a, b) => (b.sortKey || "").localeCompare(a.sortKey || ""));
+  // newest-first by the moment each trip actually began (first photo), not by upload order
+  const anchor = (t) => {
+    const ts = t.photos.map((p) => p.taken).filter(Boolean).sort();
+    return ts[0] || ((t.sortKey || "0000-00") + "-15");
+  };
+  manifest.trips.sort((a, b) => anchor(b).localeCompare(anchor(a)));
   return { tripLabel: trip.title + (trip.date ? ` (${trip.date})` : "") };
 }
 
@@ -409,7 +428,7 @@ async function listTrips() {
 }
 
 // ---------- edits: fix the magic's mistakes ----------
-async function editTrip(id, { title, location, note, coords, place }) {
+async function editTrip(id, { title, location, note, coords, place, date, sortKey }) {
   const m = await loadManifest();
   const t = m.trips.find((x) => x.id === id);
   if (!t) return false;
@@ -420,6 +439,8 @@ async function editTrip(id, { title, location, note, coords, place }) {
     t.coords = [+coords[0].toFixed(4), +coords[1].toFixed(4)]; // puts the trip on the star map
   }
   if (place !== undefined) t.place = String(place).trim().slice(0, 120) || undefined;
+  if (date !== undefined) t.date = String(date).trim().slice(0, 20);
+  if (sortKey && /^\d{4}-\d{2}$/.test(sortKey)) t.sortKey = sortKey;
   await saveManifest(m);
   return true;
 }
@@ -445,4 +466,4 @@ async function setSince(date) {
   return true;
 }
 
-module.exports = { enabled, init, addPhotos, autoAddPhotos, renderPhotosJs, listTrips, loadManifest, saveManifest, put, publicBase, editTrip, editPhoto, setSince };
+module.exports = { enabled, init, addPhotos, autoAddPhotos, renderPhotosJs, listTrips, loadManifest, saveManifest, put, publicBase, editTrip, editPhoto, setSince, forwardGeocode };

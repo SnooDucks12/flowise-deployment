@@ -364,6 +364,13 @@ app.post("/api/edit", async (req, res) => {
   if (!checkKey(req, res)) return;
   const { type } = req.body || {};
   try {
+    // editing a trip's location places its star: geocode the typed place name
+    if (type === "trip" && req.body.location && !req.body.coords) {
+      try {
+        const c = await spaces.forwardGeocode(req.body.location);
+        if (c) { req.body.coords = c; req.body.place = req.body.place || req.body.location; }
+      } catch {}
+    }
     if (CLOUD) {
       let ok = false;
       if (type === "trip") ok = await spaces.editTrip(req.body.id, req.body);
@@ -380,6 +387,10 @@ app.post("/api/edit", async (req, res) => {
         if (req.body.title !== undefined && String(req.body.title).trim()) t.title = String(req.body.title).trim().slice(0, 80);
         if (req.body.location !== undefined) t.location = String(req.body.location).trim().slice(0, 120);
         if (req.body.note !== undefined) t.note = String(req.body.note).trim().slice(0, 500);
+        if (Array.isArray(req.body.coords) && req.body.coords.length === 2 && req.body.coords.every(Number.isFinite)) {
+          t.coords = [+req.body.coords[0].toFixed(4), +req.body.coords[1].toFixed(4)];
+        }
+        if (req.body.place) t.place = String(req.body.place).trim().slice(0, 120);
         ok = true;
       }
     } else if (type === "photo") {
@@ -433,7 +444,13 @@ if (CLOUD) {
 
 // ---------- pages ----------
 app.get("/upload", (req, res) => res.sendFile(path.join(ROOT, "upload.html")));
-app.use(express.static(ROOT, { extensions: ["html"] }));
+app.use(express.static(ROOT, {
+  extensions: ["html"],
+  setHeaders(res, filePath) {
+    // pages and the manifest must never go stale on phones; photos are immutable
+    if (/\.(html|js|webmanifest)$/.test(filePath)) res.setHeader("Cache-Control", "no-cache");
+  },
+}));
 
 app.listen(PORT, () => {
   console.log(`🌙 Wanderlight → http://localhost:${PORT}`);

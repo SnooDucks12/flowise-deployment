@@ -610,6 +610,9 @@
     text-transform: none;
     fill: color-mix(in srgb, var(--ink-dim) 70%, transparent);
   }
+  .skymap .const-star .place-hint {
+    fill: color-mix(in srgb, var(--gold) 75%, transparent);
+  }
   .skymap .const-star .chrono-num {
     font-family: var(--serif);
     font-style: italic;
@@ -898,6 +901,14 @@
 const trips = (window.TRIPS && window.TRIPS.length ? window.TRIPS : []).slice();
 const SINCE = window.TOGETHER_SINCE || null;
 
+/* the whole page reads as a story: trips ordered by when they actually
+   happened — the first photo's timestamp, not the upload order */
+const tripAnchor = (t) => {
+  const ts = t.photos.map((p) => p.taken).filter(Boolean).sort();
+  return ts[0] || "9999"; // undated trips drift to the end of the story
+};
+trips.sort((a, b) => tripAnchor(a).localeCompare(tripAnchor(b))); // oldest first
+
 /* stats */
 const allPhotos = [];
 trips.forEach((t, ti) => t.photos.forEach((p, pi) => allPhotos.push({ ...p, trip: t, ti, pi })));
@@ -939,11 +950,11 @@ function makeChip(label, id) {
 filtersEl.appendChild(makeChip("All of it ✦", "all"));
 trips.forEach((t) => filtersEl.appendChild(makeChip(t.title, t.id)));
 
-/* sort toggle — flips chapter order between newest- and oldest-first */
-let newestFirst = true;
+/* sort toggle — flips chapter order between story order and newest-first */
+let newestFirst = false; // default: the story as it happened
 const sortBtn = document.createElement("button");
 sortBtn.className = "sort-btn";
-sortBtn.textContent = "newest ↓";
+sortBtn.textContent = "oldest ↑";
 sortBtn.title = "Flip the order of the journeys";
 sortBtn.addEventListener("click", () => {
   newestFirst = !newestFirst;
@@ -963,7 +974,7 @@ trips.forEach((t, ti) => {
     <div class="chapter-head">
       <h2>${t.title}</h2>
       <span class="where">${t.location || ""}</span>
-      <span class="when">${t.date || ""}</span>
+      <span class="when">${/0000/.test(t.date || "") ? "" : (t.date || "")}</span>
     </div>
     ${t.note ? `<p class="chapter-note">${t.note}</p>` : ""}
     <div class="masonry"></div>`;
@@ -1073,81 +1084,77 @@ lb.addEventListener("touchend", (e) => {
 
 /* ---------- constellation map (from GPS metadata) ---------- */
 (function skymap() {
-  const valid = trips.filter((t) =>
-    Array.isArray(t.coords) && t.coords.length === 2 && t.coords.every(Number.isFinite));
-  if (valid.length === 0) return; // no placed trips yet — section stays hidden
+  if (trips.length === 0) return; // nothing yet — section stays hidden
   document.getElementById("skymap").hidden = false;
 
   const svg = document.getElementById("skymapSvg");
   const NS = "http://www.w3.org/2000/svg";
   const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   const mq = matchMedia("(max-width: 640px)");
+  const isPlaced = (t) => Array.isArray(t.coords) && t.coords.length === 2 && t.coords.every(Number.isFinite);
 
   function build() {
     // rebuildable: clear everything except <defs> (gradients live there)
     [...svg.childNodes].forEach((n) => { if (n.nodeName.toLowerCase() !== "defs") svg.removeChild(n); });
 
-    // canvas grows with the constellation; phones get a narrower viewBox so labels render larger
+    // EVERY trip gets a star. Placed trips sit at their true coordinates;
+    // placeless trips drift in a band at the bottom until they get a home.
+    // The trips array is already story-ordered (oldest first, by first photo).
+    const placed = trips.filter(isPlaced);
+    const unplaced = trips.filter((t) => !isPlaced(t));
+
     const compact = mq.matches;
     const W = compact ? 640 : 1000;
-    const H = Math.round((valid.length <= 2 ? 340 : valid.length <= 4 ? 440 : 540) * (compact ? 0.92 : 1));
+    const mapH = Math.round((Math.max(placed.length, 1) <= 2 ? 340 : placed.length <= 4 ? 440 : 540) * (compact ? 0.92 : 1));
+    const H = mapH + (unplaced.length ? 70 : 0);
     const PAD = compact ? 74 : 96;
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
 
-    // TRUE chronology: order by the moment each trip's first photo was taken;
-    // any pair involving an undated trip falls back to the list's oldest-first order
-    const oldestFirst = [...trips].reverse();
-    const chrono = valid
-      .map((t) => {
-        const times = t.photos.map((p) => p.taken).filter(Boolean).sort();
-        return { t, key: times[0] || null, fb: oldestFirst.indexOf(t) };
-      })
-      .sort((a, b) => (a.key && b.key) ? a.key.localeCompare(b.key) : a.fb - b.fb)
-      .map((x) => x.t);
+    // ---- geographic layout for placed trips ----
+    let pts = [];
+    if (placed.length) {
+      // unwrap longitudes across the widest gap (Tokyo→Honolulu goes the short way)
+      const rawLons = placed.map((t) => t.coords[1]);
+      const sortedLons = [...rawLons].sort((a, b) => a - b);
+      let cutLon = sortedLons[0];
+      let maxGap = sortedLons[0] + 360 - sortedLons[sortedLons.length - 1];
+      for (let i = 1; i < sortedLons.length; i++) {
+        if (sortedLons[i] - sortedLons[i - 1] > maxGap) { maxGap = sortedLons[i] - sortedLons[i - 1]; cutLon = sortedLons[i]; }
+      }
+      const unwrap = (lon) => (lon < cutLon ? lon + 360 : lon);
 
-    // unwrap longitudes across the widest gap so Tokyo→Honolulu goes the short
-    // way around the globe instead of stretching across the whole map
-    const rawLons = chrono.map((t) => t.coords[1]);
-    const sortedLons = [...rawLons].sort((a, b) => a - b);
-    let cutLon = sortedLons[0];
-    let maxGap = sortedLons[0] + 360 - sortedLons[sortedLons.length - 1];
-    for (let i = 1; i < sortedLons.length; i++) {
-      if (sortedLons[i] - sortedLons[i - 1] > maxGap) { maxGap = sortedLons[i] - sortedLons[i - 1]; cutLon = sortedLons[i]; }
-    }
-    const unwrap = (lon) => (lon < cutLon ? lon + 360 : lon);
+      const lats = placed.map((t) => t.coords[0]);
+      const lons = rawLons.map(unwrap);
+      const latMin = Math.min(...lats), latMax = Math.max(...lats);
+      const lonMin = Math.min(...lons), lonMax = Math.max(...lons);
+      const latSpan = Math.max(latMax - latMin, 3);
+      const lonSpan = Math.max(lonMax - lonMin, 3);
+      const project = ([lat, lon]) => [
+        PAD + ((unwrap(lon) - lonMin + (lonSpan - (lonMax - lonMin)) / 2) / lonSpan) * (W - PAD * 2),
+        PAD + ((latMax - lat + (latSpan - (latMax - latMin)) / 2) / latSpan) * (mapH - PAD * 2),
+      ];
+      pts = placed.map((t) => project(t.coords));
 
-    const lats = chrono.map((t) => t.coords[0]);
-    const lons = rawLons.map(unwrap);
-    const latMin = Math.min(...lats), latMax = Math.max(...lats);
-    const lonMin = Math.min(...lons), lonMax = Math.max(...lons);
-    const latSpan = Math.max(latMax - latMin, 3);
-    const lonSpan = Math.max(lonMax - lonMin, 3);
-    const project = ([lat, lon]) => [
-      PAD + ((unwrap(lon) - lonMin + (lonSpan - (lonMax - lonMin)) / 2) / lonSpan) * (W - PAD * 2),
-      PAD + ((latMax - lat + (latSpan - (latMax - latMin)) / 2) / latSpan) * (H - PAD * 2),
-    ];
-
-    // two journeys to the same city must not stack — spread coincident stars apart
-    const pts = chrono.map((t) => project(t.coords));
-    const MIN_D = 30;
-    for (let pass = 0; pass < 3; pass++) {
-      for (let i = 0; i < pts.length; i++) {
-        for (let j = i + 1; j < pts.length; j++) {
-          const dx = pts[j][0] - pts[i][0], dy = pts[j][1] - pts[i][1];
-          const d = Math.sqrt(dx * dx + dy * dy);
-          if (d < MIN_D) {
-            const ang = d < 0.001 ? (j * 2.4) : Math.atan2(dy, dx);
-            const push = (MIN_D - d) / 2 + 0.5;
-            pts[i][0] -= Math.cos(ang) * push; pts[i][1] -= Math.sin(ang) * push;
-            pts[j][0] += Math.cos(ang) * push; pts[j][1] += Math.sin(ang) * push;
+      // two journeys to the same city must not stack — spread coincident stars
+      const MIN_D = 30;
+      for (let pass = 0; pass < 3; pass++) {
+        for (let i = 0; i < pts.length; i++) {
+          for (let j = i + 1; j < pts.length; j++) {
+            const dx = pts[j][0] - pts[i][0], dy = pts[j][1] - pts[i][1];
+            const d = Math.sqrt(dx * dx + dy * dy);
+            if (d < MIN_D) {
+              const ang = d < 0.001 ? (j * 2.4) : Math.atan2(dy, dx);
+              const push = (MIN_D - d) / 2 + 0.5;
+              pts[i][0] -= Math.cos(ang) * push; pts[i][1] -= Math.sin(ang) * push;
+              pts[j][0] += Math.cos(ang) * push; pts[j][1] += Math.sin(ang) * push;
+            }
           }
         }
       }
-    }
-    // keep everything on the canvas after spreading
-    for (const p of pts) {
-      p[0] = Math.min(W - PAD * 0.6, Math.max(PAD * 0.6, p[0]));
-      p[1] = Math.min(H - PAD * 0.55, Math.max(PAD * 0.55, p[1]));
+      for (const p of pts) {
+        p[0] = Math.min(W - PAD * 0.6, Math.max(PAD * 0.6, p[0]));
+        p[1] = Math.min(mapH - PAD * 0.55, Math.max(PAD * 0.55, p[1]));
+      }
     }
 
     // faint background stars
@@ -1161,8 +1168,7 @@ lb.addEventListener("touchend", (e) => {
       svg.appendChild(s);
     }
 
-    // the line of our story — a soft curve through the stars, oldest → newest.
-    // Control points are clamped so uneven star spacing can't loop the thread.
+    // the line of our story — a soft curve through the placed stars, oldest → newest
     function storyPath(p) {
       if (p.length < 2) return "";
       if (p.length === 2) {
@@ -1173,7 +1179,7 @@ lb.addEventListener("touchend", (e) => {
         const lift = Math.min(40, len * 0.16);
         return `M${a[0].toFixed(1)},${a[1].toFixed(1)} Q${(mx - (dy / len) * lift).toFixed(1)},${(my + (dx / len) * lift).toFixed(1)} ${b[0].toFixed(1)},${b[1].toFixed(1)}`;
       }
-      const clamp = (c, from, segLen) => {
+      const clampC = (c, from, segLen) => {
         const vx = c[0] - from[0], vy = c[1] - from[1];
         const l = Math.sqrt(vx * vx + vy * vy);
         const max = segLen * 0.38;
@@ -1184,8 +1190,8 @@ lb.addEventListener("touchend", (e) => {
       for (let i = 0; i < p.length - 1; i++) {
         const p0 = p[Math.max(0, i - 1)], p1 = p[i], p2 = p[i + 1], p3 = p[Math.min(p.length - 1, i + 2)];
         const seg = Math.sqrt((p2[0] - p1[0]) ** 2 + (p2[1] - p1[1]) ** 2) || 1;
-        const c1 = clamp([p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6], p1, seg);
-        const c2 = clamp([p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6], p2, seg);
+        const c1 = clampC([p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6], p1, seg);
+        const c2 = clampC([p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6], p2, seg);
         d += ` C${c1[0].toFixed(1)},${c1[1].toFixed(1)} ${c2[0].toFixed(1)},${c2[1].toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
       }
       return d;
@@ -1203,12 +1209,12 @@ lb.addEventListener("touchend", (e) => {
     }
 
     // big trips shine brighter — star size scales with how many moments live there
-    const maxCount = Math.max(...chrono.map((t) => t.photos.length), 1);
+    const maxCount = Math.max(...trips.map((t) => t.photos.length), 1);
     const shine = (t) => Math.sqrt(t.photos.length / maxCount);
-    const clampX = (x) => Math.min(W - 60, Math.max(60, x)); // labels stay on canvas
+    const clampX = (x) => Math.min(W - 60, Math.max(60, x));
 
     // crowded neighbours take opposite label sides so titles never pile up
-    const sides = pts.map(([, y]) => y > H / 2); // true = label above the star
+    const sides = pts.map(([, y]) => y > mapH / 2);
     for (let i = 0; i < pts.length; i++) {
       for (let j = i + 1; j < pts.length; j++) {
         if (sides[i] === sides[j] &&
@@ -1218,33 +1224,37 @@ lb.addEventListener("touchend", (e) => {
       }
     }
 
-    chrono.forEach((t, i) => {
-      const [x, y] = pts[i];
+    let starIndex = 0;
+    function addStar(t, x, y, labelAbove, hint) {
       const s = shine(t);
       const core = (3.5 + 5 * s).toFixed(1);
       const halo = (7 + 9 * s).toFixed(1);
       const glow = (20 + 36 * s).toFixed(0);
+      const num = trips.indexOf(t) + 1; // story number, shared with the chapters below
       const g = document.createElementNS(NS, "g");
       g.setAttribute("class", "const-star");
       g.setAttribute("role", "link");
       g.setAttribute("tabindex", "0");
       g.setAttribute("aria-label", `Go to ${esc(t.title)} — ${t.photos.length} moments`);
-      g.style.animationDelay = `${0.25 + i * 0.18}s`; // stars arrive in story order
-      const labelAbove = sides[i];
+      g.style.animationDelay = `${0.25 + starIndex * 0.18}s`;
+      starIndex++;
       const labelGap = 14 + 9 * s;
       const lx = clampX(x);
-      g.innerHTML =
-        `<title>${esc(t.title)} · ${t.photos.length} moment${t.photos.length === 1 ? "" : "s"}</title>` +
-        `<circle cx="${x}" cy="${y}" r="${glow}" fill="url(#starGlow)" opacity="${(0.55 + 0.45 * s).toFixed(2)}"/>` +
-        `<circle class="halo" cx="${x}" cy="${y}" r="${halo}"/>` +
-        `<circle class="core" cx="${x}" cy="${y}" r="${core}"/>` +
-        (chrono.length > 1
-          ? `<text class="chrono-num" x="${lx}" y="${labelAbove ? y + labelGap + 22 : y - labelGap - 12}" text-anchor="middle">${String(i + 1).padStart(2, "0")}</text>`
-          : "") +
-        `<text class="star-title" x="${lx}" y="${labelAbove ? y - labelGap - 8 : y + labelGap + 16}" text-anchor="middle">${esc(t.title)}</text>` +
-        (t.place || t.location
+      const sub = hint
+        ? `<text class="place-lbl place-hint" x="${lx}" y="${labelAbove ? y - labelGap - 22 : y + labelGap + 30}" text-anchor="middle">where was this? tap its ✎</text>`
+        : (t.place || t.location
           ? `<text class="place-lbl" x="${lx}" y="${labelAbove ? y - labelGap - 22 : y + labelGap + 30}" text-anchor="middle">${esc(t.place || t.location)}</text>`
           : "");
+      g.innerHTML =
+        `<title>${esc(t.title)} · ${t.photos.length} moment${t.photos.length === 1 ? "" : "s"}</title>` +
+        `<circle cx="${x}" cy="${y}" r="${glow}" fill="url(#starGlow)" opacity="${(hint ? 0.35 : 0.55 + 0.45 * s).toFixed(2)}"/>` +
+        `<circle class="halo" cx="${x}" cy="${y}" r="${halo}"/>` +
+        `<circle class="core" cx="${x}" cy="${y}" r="${core}"/>` +
+        (trips.length > 1
+          ? `<text class="chrono-num" x="${lx}" y="${labelAbove ? y + labelGap + 22 : y - labelGap - 12}" text-anchor="middle">${String(num).padStart(2, "0")}</text>`
+          : "") +
+        `<text class="star-title" x="${lx}" y="${labelAbove ? y - labelGap - 8 : y + labelGap + 16}" text-anchor="middle">${esc(t.title)}</text>` +
+        sub;
       const go = () => {
         const target = document.querySelector(`.chapter[data-id="${t.id}"]`);
         if (target) {
@@ -1257,12 +1267,46 @@ lb.addEventListener("touchend", (e) => {
       g.addEventListener("click", go);
       g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
       svg.appendChild(g);
+    }
+
+    placed.forEach((t, i) => addStar(t, pts[i][0], pts[i][1], sides[i], false));
+    // placeless trips drift along the bottom, waiting for a home
+    unplaced.forEach((t, k) => {
+      const x = (W * (k + 1)) / (unplaced.length + 1);
+      addStar(t, x, H - 34, true, true);
     });
   }
 
   build();
   // phone rotation / window resize crosses the 640px breakpoint — rebuild to match
   if (mq.addEventListener) mq.addEventListener("change", build);
+})();
+
+/* ---------- live refresh: the universe updates itself ----------
+   As a home-screen app the page stays alive between visits, so we
+   re-check the manifest whenever the gallery regains focus (and after
+   uploads in another tab) — if anything changed, reload to show it. */
+(function liveRefresh() {
+  let baseline = null;
+  const fetchManifest = () =>
+    fetch("photos.js?live=" + Date.now(), { cache: "no-store" })
+      .then((r) => (r.ok ? r.text() : null))
+      .catch(() => null);
+  fetchManifest().then((t) => { baseline = t; });
+  let checking = false;
+  async function check() {
+    if (checking || document.visibilityState !== "visible") return { skipped: true };
+    checking = true;
+    const t = await fetchManifest();
+    checking = false;
+    const changed = Boolean(t && baseline && t !== baseline);
+    if (changed) location.reload();
+    return { changed, hasBaseline: Boolean(baseline), fetched: Boolean(t) };
+  }
+  window.__wanderlightCheck = check; // manual hook (also used by tests)
+  document.addEventListener("visibilitychange", check);
+  window.addEventListener("focus", check);
+  window.addEventListener("pageshow", (e) => { if (e.persisted) check(); });
 })();
 
 /* ---------- server mode: upload buttons + edit-in-place ---------- */
