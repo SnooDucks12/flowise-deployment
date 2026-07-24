@@ -124,7 +124,7 @@
 
   /* ---------- hero ---------- */
   .hero {
-    min-height: 92svh;
+    min-height: 74svh;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -222,31 +222,6 @@
     box-shadow: 0 16px 44px -14px color-mix(in srgb, var(--rose) 55%, transparent);
   }
   .hero .add-btn[hidden] { display: none; }
-
-  .scroll-hint {
-    position: absolute;
-    bottom: max(1rem, env(safe-area-inset-bottom));
-    left: 50%;
-    transform: translateX(-50%);
-    color: var(--ink-dim);
-    font-size: 0.62rem;
-    letter-spacing: 0.4em;
-    text-transform: uppercase;
-    animation: rise 1.2s var(--ease-out) both 1.5s;
-  }
-  .scroll-hint::after {
-    content: "";
-    display: block;
-    width: 1px;
-    height: 2.6rem;
-    margin: 0.8rem auto 0;
-    background: linear-gradient(var(--rose), transparent);
-    animation: pulse-line 2.2s ease-in-out infinite;
-  }
-  @keyframes pulse-line {
-    0%, 100% { opacity: 0.25; transform: scaleY(0.6); transform-origin: top; }
-    50% { opacity: 1; transform: scaleY(1); }
-  }
 
   @keyframes rise {
     from { opacity: 0; transform: translateY(28px); filter: blur(6px); }
@@ -527,7 +502,7 @@
 
   /* ---------- constellation map ---------- */
   .skymap {
-    padding: clamp(2rem, 5vw, 3.5rem) clamp(1rem, 5vw, 4rem) clamp(1.2rem, 3vw, 2.2rem);
+    padding: clamp(1.2rem, 3vw, 2.2rem) clamp(1rem, 5vw, 4rem) clamp(1.2rem, 3vw, 2.2rem);
     max-width: 1100px;
     margin: 0 auto;
   }
@@ -569,6 +544,12 @@
     stroke-linecap: round;
     filter: blur(6px);
     opacity: 0.25;
+  }
+  /* the thread to a star still waiting for its place — softer, dottier */
+  .skymap .const-line-pending {
+    stroke-width: 1.4;
+    stroke-dasharray: 1.5 8;
+    opacity: 0.6;
   }
   @keyframes dash-drift { to { stroke-dashoffset: -300; } }
   .skymap .const-star { cursor: pointer; }
@@ -767,8 +748,6 @@
     </div>
 
     <a class="add-btn" id="addBtn" href="upload" hidden>📸 add our memories</a>
-
-    <div class="scroll-hint">begin</div>
   </header>
 
   <!-- ================= CONSTELLATION ================= -->
@@ -1163,17 +1142,19 @@ lb.addEventListener("touchend", (e) => {
       svg.appendChild(s);
     }
 
+    // one soft arc between two points — two-star stories and pending threads
+    function arc(a, b) {
+      const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+      const dx = b[0] - a[0], dy = b[1] - a[1];
+      const len = Math.sqrt(dx * dx + dy * dy) || 1;
+      const lift = Math.min(40, len * 0.16);
+      return `M${a[0].toFixed(1)},${a[1].toFixed(1)} Q${(mx - (dy / len) * lift).toFixed(1)},${(my + (dx / len) * lift).toFixed(1)} ${b[0].toFixed(1)},${b[1].toFixed(1)}`;
+    }
+
     // the line of our story — a soft curve through the placed stars, oldest → newest
     function storyPath(p) {
       if (p.length < 2) return "";
-      if (p.length === 2) {
-        const [a, b] = p;
-        const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
-        const dx = b[0] - a[0], dy = b[1] - a[1];
-        const len = Math.sqrt(dx * dx + dy * dy) || 1;
-        const lift = Math.min(40, len * 0.16);
-        return `M${a[0].toFixed(1)},${a[1].toFixed(1)} Q${(mx - (dy / len) * lift).toFixed(1)},${(my + (dx / len) * lift).toFixed(1)} ${b[0].toFixed(1)},${b[1].toFixed(1)}`;
-      }
+      if (p.length === 2) return arc(p[0], p[1]);
       const clampC = (c, from, segLen) => {
         const vx = c[0] - from[0], vy = c[1] - from[1];
         const l = Math.sqrt(vx * vx + vy * vy);
@@ -1201,6 +1182,20 @@ lb.addEventListener("touchend", (e) => {
       path.setAttribute("class", "const-line");
       path.setAttribute("d", d);
       svg.appendChild(path);
+    }
+
+    // stars still waiting for a home stay on the line too — a softer thread
+    // drifts from the newest placed star down to each of them in turn
+    const upts = unplaced.map((t, k) => [(W * (k + 1)) / (unplaced.length + 1), H - 34]);
+    if (upts.length && pts.length) {
+      let from = pts[pts.length - 1];
+      for (const p of upts) {
+        const thread = document.createElementNS(NS, "path");
+        thread.setAttribute("class", "const-line const-line-pending");
+        thread.setAttribute("d", arc(from, p));
+        svg.appendChild(thread);
+        from = p;
+      }
     }
 
     // big trips shine brighter — star size scales with how many moments live there
@@ -1270,10 +1265,7 @@ lb.addEventListener("touchend", (e) => {
 
     placed.forEach((t, i) => addStar(t, pts[i][0], pts[i][1], sides[i], false));
     // placeless trips drift along the bottom, waiting for a home
-    unplaced.forEach((t, k) => {
-      const x = (W * (k + 1)) / (unplaced.length + 1);
-      addStar(t, x, H - 34, true, true);
-    });
+    unplaced.forEach((t, k) => addStar(t, upts[k][0], upts[k][1], true, true));
   }
 
   build();
