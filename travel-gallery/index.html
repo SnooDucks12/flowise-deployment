@@ -734,6 +734,65 @@
     }
   }
 
+  /* the soft ask for notifications */
+  .push-banner {
+    position: fixed;
+    left: 50%;
+    bottom: max(1.2rem, env(safe-area-inset-bottom));
+    transform: translateX(-50%) translateY(220%);
+    z-index: 95;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    background: var(--bg-soft);
+    border: 1px solid var(--line);
+    border-radius: 99px;
+    padding: 0.5rem 0.55rem 0.5rem 1.05rem;
+    font-size: 0.78rem;
+    color: var(--ink);
+    max-width: min(94vw, 30rem);
+    box-shadow: 0 12px 44px -12px rgba(0, 0, 0, 0.7);
+    transition: transform 0.6s var(--ease-out);
+  }
+  .push-banner.show { transform: translateX(-50%) translateY(0); }
+  @media (max-width: 480px) {
+    .push-banner {
+      border-radius: 18px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      padding: 0.8rem 0.9rem;
+      width: min(94vw, 26rem);
+    }
+    .push-banner span { flex: 1 1 100%; line-height: 1.45; }
+  }
+  .push-banner .pb-yes {
+    font-family: var(--sans);
+    font-weight: 500;
+    font-size: 0.74rem;
+    letter-spacing: 0.05em;
+    color: #17091a;
+    background: linear-gradient(120deg, var(--rose), var(--violet));
+    border: none;
+    border-radius: 99px;
+    padding: 0.45rem 0.9rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .push-banner .pb-no {
+    width: 1.8rem;
+    height: 1.8rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ink-dim);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 0.75rem;
+    flex: none;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     /* kill animations outright — a 0.001s infinite loop would strobe, which is worse */
     *, *::before, *::after { animation: none !important; transition-duration: 0.001s !important; }
@@ -770,7 +829,7 @@
     </div>
 
     <a class="add-btn" id="addBtn" href="upload" hidden>📸 add our memories</a>
-    <a class="cinema-btn" id="cinemaBtn" href="movies" hidden>🍿 meie kinoõhtud</a>
+    <a class="cinema-btn" id="cinemaBtn" href="movies" hidden>🍿 our movie nights</a>
   </header>
 
   <!-- ================= CONSTELLATION ================= -->
@@ -918,9 +977,13 @@ function animateNum(el, target) {
     if (k < 1) requestAnimationFrame(step);
   })(t0);
 }
+// whole calendar days in Estonian time — the number ticks over at midnight in Tallinn
+function daysOfUs(since) {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Tallinn" }).format(new Date());
+  return Math.max(0, Math.round((Date.parse(today) - Date.parse(since.slice(0, 10))) / 86400000));
+}
 if (SINCE) {
-  const days = Math.max(0, Math.floor((Date.now() - new Date(SINCE)) / 86400000));
-  animateNum(document.getElementById("statDays"), days);
+  animateNum(document.getElementById("statDays"), daysOfUs(SINCE));
 } else {
   document.getElementById("statDays").textContent = "∞";
 }
@@ -1333,6 +1396,7 @@ fetch("api/trips", { method: "GET" })
     document.getElementById("addBtn").hidden = false;
     document.getElementById("cinemaBtn").hidden = false;
     enableEditing();
+    enablePush();
   })
   .catch(() => {}); // static hosting (no server) — extras stay hidden
 
@@ -1419,12 +1483,11 @@ function enableEditing() {
   daysStat.classList.add("editable");
   daysStat.title = "set our anniversary";
   daysStat.addEventListener("click", async () => {
-    const date = prompt("Your anniversary (YYYY-MM-DD)", SINCE || "2023-06-01");
+    const date = prompt("Your anniversary (YYYY-MM-DD)", SINCE || "2026-01-01");
     if (date === null) return;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return alert("format: YYYY-MM-DD");
     if (await sendEdit({ type: "since", date })) {
-      const days = Math.max(0, Math.floor((Date.now() - new Date(date)) / 86400000));
-      document.getElementById("statDays").textContent = days.toLocaleString();
+      document.getElementById("statDays").textContent = daysOfUs(date).toLocaleString();
     }
   });
 }
@@ -1445,6 +1508,56 @@ document.getElementById("moonBtn").addEventListener("click", (e) => {
     }, i * 120);
   }
 });
+
+/* ---------- push pings: know when the other one adds something ✨ ---------- */
+function enablePush() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return;
+
+  const urlB64ToUint8 = (s) => {
+    const pad = "=".repeat((4 - (s.length % 4)) % 4);
+    const raw = atob((s + pad).replace(/-/g, "+").replace(/_/g, "/"));
+    return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+  };
+
+  const ready = navigator.serviceWorker.register("sw.js").then(() => navigator.serviceWorker.ready).catch(() => null);
+
+  async function subscribe() {
+    const reg = await ready;
+    if (!reg) return false;
+    try {
+      const { key } = await (await fetch("api/push/key")).json();
+      if (!key) return false;
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8(key) });
+      await fetch("api/push/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscription: sub }),
+      });
+      localStorage.setItem("wanderlight-push-endpoint", sub.endpoint);
+      return true;
+    } catch { return false; }
+  }
+
+  if (Notification.permission === "granted") { subscribe(); return; } // renew quietly
+  if (Notification.permission !== "default") return;
+  if (localStorage.getItem("wanderlight-push-dismissed")) return;
+
+  const bar = document.createElement("div");
+  bar.className = "push-banner";
+  bar.innerHTML = '<span>🔔 want a little ping when the other one adds something?</span>' +
+    '<button class="pb-yes" type="button">turn on</button>' +
+    '<button class="pb-no" type="button" aria-label="not now">✕</button>';
+  document.body.appendChild(bar);
+  requestAnimationFrame(() => bar.classList.add("show"));
+  const hide = () => { bar.classList.remove("show"); setTimeout(() => bar.remove(), 700); };
+  bar.querySelector(".pb-no").addEventListener("click", () => { localStorage.setItem("wanderlight-push-dismissed", "1"); hide(); });
+  bar.querySelector(".pb-yes").addEventListener("click", () => {
+    hide();
+    Notification.requestPermission().then(async (perm) => {
+      if (perm === "granted") await subscribe();
+    });
+  });
+}
 </script>
 </body>
 </html>

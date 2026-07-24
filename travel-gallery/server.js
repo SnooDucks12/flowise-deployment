@@ -266,8 +266,10 @@ app.post("/api/upload", (req, res) => {
       };
       try {
         const summary = CLOUD ? await spaces.autoAddPhotos(args) : await localAutoSort(args);
+        const saved = summary.reduce((n, s) => n + s.count, 0);
+        if (saved > 0) notifyOthers(req, { title: "Wanderlight ✨", body: `${saved} new moment${saved === 1 ? "" : "s"} just landed in the universe`, url: "./" });
         res.json({
-          saved: summary.reduce((n, s) => n + s.count, 0),
+          saved,
           auto: true, summary, regenerated: true,
           trip: summary.map((s) => `${s.trip} ×${s.count}`).join(", "),
         });
@@ -292,6 +294,7 @@ app.post("/api/upload", (req, res) => {
           caption: req.query.caption ? String(req.query.caption).slice(0, 140) : "",
           browserCoords: Number.isFinite(lat) && Number.isFinite(lon) ? [+lat.toFixed(5), +lon.toFixed(5)] : null,
         });
+        if (r.added.length) notifyOthers(req, { title: "Wanderlight ✨", body: `${r.added.length} new moment${r.added.length === 1 ? "" : "s"} just landed in "${r.trip.replace(/^\d{4}-\d{2}\s+/, "")}"`, url: "./" });
         res.json({ saved: r.added.length, trip: r.trip, regenerated: true, files: r.added });
       } catch (e) {
         console.error("spaces upload:", e);
@@ -333,6 +336,7 @@ app.post("/api/upload", (req, res) => {
     saveMeta(meta);
 
     const ok = await regenerate();
+    if (req.files.length) notifyOthers(req, { title: "Wanderlight ✨", body: `${req.files.length} new moment${req.files.length === 1 ? "" : "s"} just landed in the universe`, url: "./" });
     res.json({
       saved: req.files.length,
       skipped,
@@ -424,6 +428,89 @@ app.get("/api/trips", async (req, res) => {
   res.json({ trips: dirs, protected: Boolean(UPLOAD_KEY) });
 });
 
+// ---------- push notifications: the other half finds out ✨ ----------
+let webpush = null;
+try { webpush = require("web-push"); } catch {}
+const PUSH_FILE = path.join(ROOT, ".push.json");
+
+async function readPushStore() {
+  if (CLOUD) return spaces.loadPush();
+  try { return JSON.parse(fs.readFileSync(PUSH_FILE, "utf8")); } catch { return {}; }
+}
+async function writePushStore(d) {
+  if (CLOUD) return spaces.savePush(d);
+  fs.writeFileSync(PUSH_FILE, JSON.stringify(d, null, 1));
+}
+
+let pushState = null;
+async function pushInit() {
+  if (!webpush) return null;
+  if (!pushState) {
+    const st = await readPushStore();
+    if (!st.vapid) {
+      st.vapid = webpush.generateVAPIDKeys();
+      st.subs = st.subs || [];
+      await writePushStore(st);
+    }
+    if (!Array.isArray(st.subs)) st.subs = [];
+    webpush.setVapidDetails("mailto:ralf.m2gi@gmail.com", st.vapid.publicKey, st.vapid.privateKey);
+    pushState = st;
+  }
+  return pushState;
+}
+
+app.get("/api/push/key", async (req, res) => {
+  const st = await pushInit().catch((e) => { console.error("push init:", e); return null; });
+  if (!st) return res.status(503).json({ error: "push not available" });
+  res.json({ key: st.vapid.publicKey });
+});
+
+app.post("/api/push/subscribe", async (req, res) => {
+  const st = await pushInit().catch(() => null);
+  if (!st) return res.status(503).json({ error: "push not available" });
+  const sub = req.body && req.body.subscription;
+  if (!sub || !sub.endpoint) return res.status(400).json({ error: "no subscription" });
+  try {
+    if (!st.subs.some((s) => s.endpoint === sub.endpoint)) {
+      st.subs.push(sub);
+      await writePushStore(st);
+    }
+    res.json({ ok: true });
+  } catch (e) { console.error("push subscribe:", e); res.status(500).json({ error: "could not save" }); }
+});
+
+app.post("/api/push/unsubscribe", async (req, res) => {
+  const st = await pushInit().catch(() => null);
+  if (!st) return res.status(503).json({ error: "push not available" });
+  st.subs = st.subs.filter((s) => s.endpoint !== (req.body && req.body.endpoint));
+  try { await writePushStore(st); } catch {}
+  res.json({ ok: true });
+});
+
+// fire-and-forget: a broken push must never break the thing that triggered it.
+// The device that made the change sends its own endpoint in X-Push-Endpoint,
+// so only the *other* phone gets the little ping.
+function notifyOthers(req, payload) {
+  (async () => {
+    const st = await pushInit();
+    if (!st || !st.subs.length) return;
+    const exclude = req.headers["x-push-endpoint"] || "";
+    const body = JSON.stringify(payload);
+    const dead = [];
+    await Promise.all(
+      st.subs.filter((s) => s.endpoint !== exclude).map((s) =>
+        webpush.sendNotification(s, body).catch((e) => {
+          if (e.statusCode === 404 || e.statusCode === 410) dead.push(s.endpoint);
+        })
+      )
+    );
+    if (dead.length) {
+      st.subs = st.subs.filter((s) => !dead.includes(s.endpoint));
+      await writePushStore(st);
+    }
+  })().catch((e) => console.error("push send:", e.message));
+}
+
 // ---------- the cinema diary 🍿 movies we saw, movies still waiting ----------
 const MOVIES_FILE = path.join(ROOT, "movies.json");
 const MOVIES_MEDIA = path.join(ROOT, "movies-media");
@@ -446,6 +533,7 @@ app.post("/api/movies", async (req, res) => {
   try {
     const data = await readMovies();
     if (!Array.isArray(data.movies)) data.movies = [];
+    let ping = "";
     if (b.op === "add") {
       const title = clean(b.title, 120);
       if (!title) return res.status(400).json({ error: "the film needs a name" });
@@ -458,23 +546,33 @@ app.post("/api/movies", async (req, res) => {
         addedAt: new Date().toISOString(),
         watchedAt: b.status === "watched" ? new Date().toISOString() : null,
       });
+      ping = b.status === "watched" ? `"${title}" was written into the movie diary` : `"${title}" joined the watchlist`;
     } else if (b.op === "edit" || b.op === "remove") {
       const i = data.movies.findIndex((m) => m.id === b.id);
       if (i < 0) return res.status(404).json({ error: "film not found" });
       if (b.op === "remove") {
+        ping = `"${data.movies[i].title}" was taken off the list`;
         data.movies.splice(i, 1);
       } else {
         const m = data.movies[i];
         if (b.title !== undefined && clean(b.title, 120)) m.title = clean(b.title, 120);
         if (b.note !== undefined) m.note = clean(b.note, 500);
         if (b.image === "") m.image = ""; // un-pin the still
-        if (b.status === "watched" && m.status !== "watched") { m.status = "watched"; m.watchedAt = new Date().toISOString(); }
-        if (b.status === "wish" && m.status !== "wish") { m.status = "wish"; m.watchedAt = null; }
+        if (b.status === "watched" && m.status !== "watched") {
+          m.status = "watched"; m.watchedAt = new Date().toISOString();
+          ping = `movie night! "${m.title}" got its ticket punched ✦`;
+        } else if (b.status === "wish" && m.status !== "wish") {
+          m.status = "wish"; m.watchedAt = null;
+          ping = `"${m.title}" went back to the watchlist`;
+        } else {
+          ping = `"${m.title}" was edited ✎`;
+        }
       }
     } else {
       return res.status(400).json({ error: "unknown op" });
     }
     await writeMovies(data);
+    if (ping) notifyOthers(req, { title: "Movie nights 🍿", body: ping, url: "movies" });
     res.json(data);
   } catch (e) { console.error("movies:", e); res.status(500).json({ error: "saving failed — try again" }); }
 });
@@ -503,6 +601,7 @@ app.post("/api/movies/still", (req, res) => {
         m.image = `movies-media/${name}`;
       }
       await writeMovies(data);
+      notifyOthers(req, { title: "Movie nights 🍿", body: `a still from the "${m.title}" night was pinned 📷`, url: "movies" });
       res.json(data);
     } catch (e) { console.error("movie still:", e); res.status(500).json({ error: "upload failed — try again" }); }
   });

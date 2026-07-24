@@ -482,6 +482,22 @@ async function saveMovies(data) {
   await put("data/movies.json", JSON.stringify(data, null, 1), "application/json", false);
 }
 
+// ---------- push notifications (VAPID keys + subscriptions, private) ----------
+async function loadPush() {
+  const { GetObjectCommand } = require("@aws-sdk/client-s3");
+  try {
+    const r = await s3.send(new GetObjectCommand({ Bucket: BUCKET(), Key: "data/push.json" }));
+    return JSON.parse(await r.Body.transformToString());
+  } catch (e) {
+    if (e.name === "NoSuchKey" || e.$metadata?.httpStatusCode === 404) return {};
+    throw e;
+  }
+}
+
+async function savePush(data) {
+  await put("data/push.json", JSON.stringify(data, null, 1), "application/json", false);
+}
+
 // a still from a movie night — resized like gallery photos, key is unique so the CDN never serves a stale one
 async function putMovieStill(buffer, mimetype, id) {
   let out = buffer;
@@ -493,4 +509,4 @@ async function putMovieStill(buffer, mimetype, id) {
   return `${publicBase()}/${encodeURI(key)}`;
 }
 
-module.exports = { enabled, init, addPhotos, autoAddPhotos, renderPhotosJs, listTrips, loadManifest, saveManifest, put, publicBase, editTrip, editPhoto, setSince, forwardGeocode, loadMovies, saveMovies, putMovieStill };
+module.exports = { enabled, init, addPhotos, autoAddPhotos, renderPhotosJs, listTrips, loadManifest, saveManifest, put, publicBase, editTrip, editPhoto, setSince, forwardGeocode, loadMovies, saveMovies, putMovieStill, loadPush, savePush };

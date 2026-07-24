@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="et">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <meta name="theme-color" content="#0a0a14" />
-<title>Kinoõhtud — Liina &amp; Ralf</title>
-<meta name="description" content="Meie väike kino tähtede all — filmid, mida nägime koos, ja need, mis alles ootavad." />
+<title>Movie Nights — Liina &amp; Ralf</title>
+<meta name="description" content="Our little cinema under the stars — films we watched together, and the ones still waiting." />
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png" />
 <link rel="apple-touch-icon" href="apple-touch-icon.png" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -569,6 +569,65 @@
   }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+  /* the soft ask for notifications */
+  .push-banner {
+    position: fixed;
+    left: 50%;
+    bottom: max(1.2rem, env(safe-area-inset-bottom));
+    transform: translateX(-50%) translateY(220%);
+    z-index: 95;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    background: var(--bg-soft);
+    border: 1px solid var(--line);
+    border-radius: 99px;
+    padding: 0.5rem 0.55rem 0.5rem 1.05rem;
+    font-size: 0.78rem;
+    color: var(--ink);
+    max-width: min(94vw, 30rem);
+    box-shadow: 0 12px 44px -12px rgba(0, 0, 0, 0.7);
+    transition: transform 0.6s var(--ease-out);
+  }
+  .push-banner.show { transform: translateX(-50%) translateY(0); }
+  @media (max-width: 480px) {
+    .push-banner {
+      border-radius: 18px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      padding: 0.8rem 0.9rem;
+      width: min(94vw, 26rem);
+    }
+    .push-banner span { flex: 1 1 100%; line-height: 1.45; }
+  }
+  .push-banner .pb-yes {
+    font-family: var(--sans);
+    font-weight: 500;
+    font-size: 0.74rem;
+    letter-spacing: 0.05em;
+    color: #17091a;
+    background: linear-gradient(120deg, var(--rose), var(--violet));
+    border: none;
+    border-radius: 99px;
+    padding: 0.45rem 0.9rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .push-banner .pb-no {
+    width: 1.8rem;
+    height: 1.8rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ink-dim);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 0.75rem;
+    flex: none;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition-duration: 0.001s !important; }
   }
@@ -582,51 +641,51 @@
 
 <main>
   <header class="mast">
-    <a class="back" href="./">✦ tagasi galeriisse</a>
-    <div class="eyebrow">kahe inimese kino</div>
-    <h1>Meie <em>kinoõhtud</em></h1>
-    <p class="tagline">filmid, mida nägime koos — ja need, mis meid alles ootavad</p>
-    <div class="stats" id="stats" hidden><b id="statSeen">0</b> nähtud &nbsp;·&nbsp; <b id="statWish">0</b> ootel</div>
+    <a class="back" href="./">✦ back to the gallery</a>
+    <div class="eyebrow">a cinema for two</div>
+    <h1>Our <em>movie nights</em></h1>
+    <p class="tagline">films we watched together — and the ones still waiting for us</p>
+    <div class="stats" id="stats" hidden><b id="statSeen">0</b> watched &nbsp;·&nbsp; <b id="statWish">0</b> waiting</div>
   </header>
 
-  <div class="closed" id="closed">kino uksed on hetkel kinni — proovi natukese aja pärast uuesti 🌙</div>
+  <div class="closed" id="closed">the cinema doors are closed for a moment — try again soon 🌙</div>
 
   <section class="booth" id="booth" hidden>
-    <span class="booth-label">piletikassa</span>
-    <input id="newTitle" type="text" maxlength="120" placeholder="mis filmi lisame?…" autocomplete="off" />
+    <span class="booth-label">box office</span>
+    <input id="newTitle" type="text" maxlength="120" placeholder="which film shall we add?…" autocomplete="off" />
     <div class="row">
-      <button class="seg active" id="segWish" type="button">ootele 🌙</button>
-      <button class="seg" id="segSeen" type="button">juba nähtud ✓</button>
-      <button class="add-btn" id="addBtn" type="button">lisa ✦</button>
+      <button class="seg active" id="segWish" type="button">watchlist 🌙</button>
+      <button class="seg" id="segSeen" type="button">already seen ✓</button>
+      <button class="add-btn" id="addBtn" type="button">add ✦</button>
     </div>
   </section>
 
   <section id="wishSection" hidden>
     <div class="sec-head">
-      <h2>ootel <span class="tiny">— veel vaatamata</span></h2>
-      <button class="pick-btn" id="pickBtn" type="button" hidden>✨ las tähed valivad</button>
+      <h2>waiting <span class="tiny">— still unwatched</span></h2>
+      <button class="pick-btn" id="pickBtn" type="button" hidden>✨ let the stars choose</button>
     </div>
     <div class="wish-list" id="wishList"></div>
   </section>
 
   <section id="seenSection" hidden>
     <div class="sec-head seen-head">
-      <h2>filmid, mida näinud oleme</h2>
+      <h2>films we have seen</h2>
     </div>
     <div class="tickets" id="seenList"></div>
   </section>
 
-  <footer id="foot" hidden>🍿 väike kino tähtede all — ainult meile kahele</footer>
+  <footer id="foot" hidden>🍿 a little cinema under the stars — just for the two of us</footer>
 </main>
 
 <div class="pick-overlay" id="pickOverlay">
   <div class="pick-box">
-    <div class="eyebrow">tähed valisid</div>
+    <div class="eyebrow">the stars have chosen</div>
     <div class="pick-title" id="pickTitle"></div>
     <div class="pick-stars" aria-hidden="true"><span>✦</span><span>✧</span><span>✦</span></div>
     <div class="pick-actions">
-      <button class="glow" id="pickOk" type="button">olgu nii ✨</button>
-      <button class="ghost" id="pickAgain" type="button">loosi uuesti 🎲</button>
+      <button class="glow" id="pickOk" type="button">so be it ✨</button>
+      <button class="ghost" id="pickAgain" type="button">roll again 🎲</button>
     </div>
   </div>
 </div>
@@ -675,12 +734,12 @@
 /* ---------- the cinema itself ---------- */
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-const KUUD = ["jaanuar", "veebruar", "märts", "aprill", "mai", "juuni", "juuli", "august", "september", "oktoober", "november", "detsember"];
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 function fmtDate(iso) {
   if (!iso) return "";
   const d = new Date(iso);
   if (isNaN(d)) return "";
-  return `${d.getDate()}. ${KUUD[d.getMonth()]} ${d.getFullYear()}`;
+  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
 }
 
 let MOVIES = [];
@@ -696,20 +755,26 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.remove("show"), 2600);
 }
 
+// the device that makes a change tells the server who it is, so the ping only goes to the other phone
+const pushHeader = () => {
+  const e = localStorage.getItem("wanderlight-push-endpoint");
+  return e ? { "X-Push-Endpoint": e } : {};
+};
+
 async function apiPost(body) {
   try {
     const r = await fetch("api/movies", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...pushHeader() },
       body: JSON.stringify(body),
     });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) { toast(j.error || "midagi läks viltu — proovi uuesti"); return null; }
+    if (!r.ok) { toast(j.error || "something went wrong — try again"); return null; }
     MOVIES = Array.isArray(j.movies) ? j.movies : [];
     render();
     return j;
   } catch {
-    toast("võrk köhatas — proovi uuesti");
+    toast("the network hiccuped — try again");
     return null;
   }
 }
@@ -718,13 +783,13 @@ function wishHtml(m) {
   return `<div class="wish" data-id="${esc(m.id)}">
     <div class="w-main">
       <div class="w-title">${esc(m.title)}</div>
-      <div class="w-sub">ootel ${m.addedAt ? "· lisatud " + esc(fmtDate(m.addedAt)) : ""}</div>
+      <div class="w-sub">waiting ${m.addedAt ? "· added " + esc(fmtDate(m.addedAt)) : ""}</div>
       ${m.note ? `<div class="w-note">„${esc(m.note)}"</div>` : ""}
     </div>
     <div class="w-actions">
-      <button class="watch-btn" data-act="watch" type="button">✓ vaatasime ära!</button>
-      <button class="icon-btn" data-act="edit" type="button" title="muuda">✎</button>
-      <button class="icon-btn" data-act="del" type="button" title="võta maha">✕</button>
+      <button class="watch-btn" data-act="watch" type="button">✓ we watched it!</button>
+      <button class="icon-btn" data-act="edit" type="button" title="edit">✎</button>
+      <button class="icon-btn" data-act="del" type="button" title="remove">✕</button>
     </div>
   </div>`;
 }
@@ -732,14 +797,14 @@ function wishHtml(m) {
 function ticketHtml(m, i) {
   return `<article class="ticket" data-id="${esc(m.id)}" style="animation-delay:${Math.min(i * 0.07, 0.6)}s">
     <div class="rail"><span>admit two ✦ liina &amp; ralf</span></div>
-    <div class="num">nr ${String(i + 1).padStart(2, "0")}</div>
+    <div class="num">no ${String(i + 1).padStart(2, "0")}</div>
     <h3 class="t-title">${esc(m.title)}</h3>
     ${m.watchedAt ? `<div class="t-date">✦ ${esc(fmtDate(m.watchedAt))}</div>` : ""}
     ${m.note ? `<div class="t-note">„${esc(m.note)}"</div>` : ""}
-    ${m.image ? `<img class="t-still" src="${esc(m.image)}" alt="pilt õhtust — ${esc(m.title)}" loading="lazy" />` : ""}
+    ${m.image ? `<img class="t-still" src="${esc(m.image)}" alt="a still from our night — ${esc(m.title)}" loading="lazy" />` : ""}
     <div class="t-actions">
-      <button class="mini-btn" data-act="edit" type="button">✎ muuda</button>
-      <button class="mini-btn" data-act="still" type="button">📷 ${m.image ? "vaheta pilt" : "lisa pilt õhtust"}</button>
+      <button class="mini-btn" data-act="edit" type="button">✎ edit</button>
+      <button class="mini-btn" data-act="still" type="button">📷 ${m.image ? "change the still" : "add a still from our night"}</button>
       <button class="mini-btn danger" data-act="del" type="button">✕</button>
     </div>
   </article>`;
@@ -762,11 +827,11 @@ function render() {
 
   $("wishList").innerHTML = wish.length
     ? wish.map(wishHtml).join("")
-    : `<div class="empty">siia ilmuvad filmid, mida veel ootame ✨ — kirjuta esimene kassasse</div>`;
+    : `<div class="empty">films we are longing to see will appear here ✨ — write the first one at the box office</div>`;
 
   $("seenList").innerHTML = seen.length
     ? seen.map(ticketHtml).join("")
-    : `<div class="empty">esimene kinoõhtu ootab veel kirjapanemist 🌙</div>`;
+    : `<div class="empty">the first movie night is still waiting to be written down 🌙</div>`;
 }
 
 /* ---------- actions ---------- */
@@ -775,35 +840,35 @@ function findMovie(id) { return MOVIES.find((m) => m.id === id); }
 async function addMovie() {
   const input = $("newTitle");
   const title = input.value.trim();
-  if (!title) { toast("kirjuta enne filmi nimi ✨"); input.focus(); return; }
+  if (!title) { toast("give the film a name first ✨"); input.focus(); return; }
   const btn = $("addBtn");
   btn.disabled = true;
   const ok = await apiPost({ op: "add", title, status: addStatus });
   btn.disabled = false;
   if (ok) {
     input.value = "";
-    toast(addStatus === "wish" ? "ootele pandud 🌙" : "kirja pandud ✦");
+    toast(addStatus === "wish" ? "added to the watchlist 🌙" : "written into our diary ✦");
   }
 }
 
 function editMovie(m) {
-  const t = prompt("Filmi nimi", m.title);
+  const t = prompt("Film title", m.title);
   if (t === null) return;
-  const n = prompt("Väike mõte sellest filmist 🌙 (võib tühjaks jätta)", m.note || "");
+  const n = prompt("A little thought about it 🌙 (can stay empty)", m.note || "");
   if (n === null) return;
   apiPost({ op: "edit", id: m.id, title: t.trim() || m.title, note: n.trim() });
 }
 
 function markWatched(m) {
-  const n = prompt(`„${m.title}" — milline see oli? väike mõte ✨ (võib tühjaks jätta)`, m.note || "");
+  const n = prompt(`"${m.title}" — how was it? a little thought ✨ (can stay empty)`, m.note || "");
   if (n === null) return;
   apiPost({ op: "edit", id: m.id, status: "watched", note: n.trim() }).then((ok) => {
-    if (ok) toast("pilet mulgustatud ✦ tore õhtu oli");
+    if (ok) toast("ticket punched ✦ what a lovely night");
   });
 }
 
 function removeMovie(m) {
-  const q = m.status === "wish" ? `„${m.title}" — võtame ootelt maha?` : `„${m.title}" — kustutame selle õhtu päriselt?`;
+  const q = m.status === "wish" ? `"${m.title}" — take it off the watchlist?` : `"${m.title}" — really erase this movie night?`;
   if (!confirm(q)) return;
   apiPost({ op: "remove", id: m.id });
 }
@@ -832,20 +897,20 @@ $("seenList").addEventListener("click", (e) => {
 $("stillInput").addEventListener("change", async () => {
   const f = $("stillInput").files[0];
   if (!f || !stillTarget) return;
-  if (f.size > 40 * 1024 * 1024) { toast("see pilt on liiga suur (üle 40 MB)"); return; }
+  if (f.size > 40 * 1024 * 1024) { toast("that picture is too big (over 40 MB)"); return; }
   const card = document.querySelector(`.ticket[data-id="${CSS.escape(stillTarget)}"] [data-act="still"]`);
-  if (card) { card.disabled = true; card.textContent = "📷 saadan…"; }
+  if (card) { card.disabled = true; card.textContent = "📷 sending…"; }
   const fd = new FormData();
   fd.append("photo", f);
   try {
-    const r = await fetch("api/movies/still?id=" + encodeURIComponent(stillTarget), { method: "POST", body: fd });
+    const r = await fetch("api/movies/still?id=" + encodeURIComponent(stillTarget), { method: "POST", body: fd, headers: pushHeader() });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) { toast(j.error || "üleslaadimine ebaõnnestus — proovi uuesti"); render(); return; }
+    if (!r.ok) { toast(j.error || "the upload failed — try again"); render(); return; }
     MOVIES = Array.isArray(j.movies) ? j.movies : MOVIES;
     render();
-    toast("pilt õhtust salvestatud 📷✨");
+    toast("a still from our night, saved 📷✨");
   } catch {
-    toast("võrk köhatas — proovi uuesti");
+    toast("the network hiccuped — try again");
     render();
   }
 });
@@ -909,6 +974,56 @@ load(true);
 ["visibilitychange", "pageshow"].forEach((ev) =>
   addEventListener(ev, () => { if (document.visibilityState === "visible" && !document.querySelector(".pick-overlay.show")) load(false); })
 );
+
+/* ---------- push pings: know when the other one adds something ✨ ---------- */
+(function enablePush() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return;
+
+  const urlB64ToUint8 = (s) => {
+    const pad = "=".repeat((4 - (s.length % 4)) % 4);
+    const raw = atob((s + pad).replace(/-/g, "+").replace(/_/g, "/"));
+    return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+  };
+
+  const ready = navigator.serviceWorker.register("sw.js").then(() => navigator.serviceWorker.ready).catch(() => null);
+
+  async function subscribe() {
+    const reg = await ready;
+    if (!reg) return false;
+    try {
+      const { key } = await (await fetch("api/push/key")).json();
+      if (!key) return false;
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8(key) });
+      await fetch("api/push/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscription: sub }),
+      });
+      localStorage.setItem("wanderlight-push-endpoint", sub.endpoint);
+      return true;
+    } catch { return false; }
+  }
+
+  if (Notification.permission === "granted") { subscribe(); return; } // renew quietly
+  if (Notification.permission !== "default") return;
+  if (localStorage.getItem("wanderlight-push-dismissed")) return;
+
+  const bar = document.createElement("div");
+  bar.className = "push-banner";
+  bar.innerHTML = '<span>🔔 want a little ping when the other one adds something?</span>' +
+    '<button class="pb-yes" type="button">turn on</button>' +
+    '<button class="pb-no" type="button" aria-label="not now">✕</button>';
+  document.body.appendChild(bar);
+  requestAnimationFrame(() => bar.classList.add("show"));
+  const hide = () => { bar.classList.remove("show"); setTimeout(() => bar.remove(), 700); };
+  bar.querySelector(".pb-no").addEventListener("click", () => { localStorage.setItem("wanderlight-push-dismissed", "1"); hide(); });
+  bar.querySelector(".pb-yes").addEventListener("click", () => {
+    hide();
+    Notification.requestPermission().then(async (perm) => {
+      if (perm === "granted" && (await subscribe())) toast("little pings are on 🔔✨");
+    });
+  });
+})();
 </script>
 </body>
 </html>

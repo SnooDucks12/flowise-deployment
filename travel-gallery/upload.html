@@ -247,6 +247,8 @@ function sendChunk(chunk, q, done, progressBase, progressSpan) {
   xhr.open("POST", "/api/upload?" + q.toString());
   const key = getKey();
   if (key) xhr.setRequestHeader("X-Upload-Key", key);
+  const pushEp = localStorage.getItem("wanderlight-push-endpoint");
+  if (pushEp) xhr.setRequestHeader("X-Push-Endpoint", pushEp); // don't ping yourself
   xhr.upload.onprogress = (e) => {
     if (e.lengthComputable) barFill.style.width = (progressBase + (e.loaded / e.total) * progressSpan) * 100 + "%";
   };
