@@ -22,7 +22,8 @@ the GitHub repo is public / connected; otherwise the script prints the
 3-click manual path).
 
 Options: `SPACES_REGION=fra1` (default, Frankfurt — good for Estonia),
-`SPACES_BUCKET=your-name`, `UPLOAD_KEY=secretword`.
+`SPACES_BUCKET=your-name`, `UPLOAD_KEY=secretword` (optional — adds a
+"secret word" gate to uploads; leave unset for no prompt).
 
 ## 2. Move existing photos to the cloud
 
@@ -50,5 +51,7 @@ this is a 2-minute job.)
 
 - Never commit `DO_TOKEN` or the `SPACES_*` secrets. They live in env vars
   (App Platform stores them encrypted as SECRET-type envs).
-- Set `UPLOAD_KEY` in production so only the two of you can upload.
+- `UPLOAD_KEY` is optional and currently off: anyone who has the site's
+  address can add photos. Set it again (app → Settings → Environment
+  Variables) if strangers ever find the link.
 - Rotate any token that has ever been pasted into a chat or document.
