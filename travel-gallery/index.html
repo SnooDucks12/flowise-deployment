@@ -556,23 +556,20 @@
   .skymap .const-line {
     fill: none;
     stroke: url(#constGrad);
-    stroke-width: 1.2;
-    stroke-dasharray: 3 7;
+    stroke-width: 1.7;
+    stroke-dasharray: 5 7;
     stroke-linecap: round;
-    opacity: 0;
-    animation: line-in 1.6s ease 0.5s forwards, dash-drift 60s linear infinite;
+    opacity: 0.85;
+    animation: dash-drift 60s linear infinite;
   }
   .skymap .const-line-glow {
     fill: none;
     stroke: url(#constGrad);
-    stroke-width: 5;
+    stroke-width: 6;
     stroke-linecap: round;
     filter: blur(6px);
-    opacity: 0;
-    animation: line-in-glow 1.6s ease 0.5s forwards;
+    opacity: 0.25;
   }
-  @keyframes line-in { to { opacity: 0.65; } }
-  @keyframes line-in-glow { to { opacity: 0.18; } }
   @keyframes dash-drift { to { stroke-dashoffset: -300; } }
   .skymap .const-star { cursor: pointer; }
   .skymap .const-star circle.core { fill: #fff; transition: r 0.3s var(--ease-out); }
@@ -739,8 +736,6 @@
     *, *::before, *::after { animation: none !important; transition-duration: 0.001s !important; }
     html { scroll-behavior: auto; }
     /* elements whose resting state is "hidden until animated in" must be shown */
-    .skymap .const-line { opacity: 0.65; }
-    .skymap .const-line-glow { opacity: 0.18; }
     .skymap .const-star { opacity: 1; }
   }
 </style>
@@ -1240,26 +1235,30 @@ lb.addEventListener("touchend", (e) => {
       starIndex++;
       const labelGap = 14 + 9 * s;
       const lx = clampX(x);
+      // long titles get gently trimmed on the map — the full name lives in the tooltip & chapter
+      const trim = (str, n) => (str.length > n ? str.slice(0, n - 1).trimEnd() + "…" : str);
       const sub = hint
-        ? `<text class="place-lbl place-hint" x="${lx}" y="${labelAbove ? y - labelGap - 22 : y + labelGap + 30}" text-anchor="middle">where was this? tap its ✎</text>`
+        ? `<text class="place-lbl place-hint" x="${lx}" y="${y + labelGap + 16}" text-anchor="middle">tap ✎ to give it a place</text>`
         : (t.place || t.location
-          ? `<text class="place-lbl" x="${lx}" y="${labelAbove ? y - labelGap - 22 : y + labelGap + 30}" text-anchor="middle">${esc(t.place || t.location)}</text>`
+          ? `<text class="place-lbl" x="${lx}" y="${labelAbove ? y - labelGap - 22 : y + labelGap + 30}" text-anchor="middle">${esc(trim(t.place || t.location, 28))}</text>`
           : "");
       g.innerHTML =
         `<title>${esc(t.title)} · ${t.photos.length} moment${t.photos.length === 1 ? "" : "s"}</title>` +
         `<circle cx="${x}" cy="${y}" r="${glow}" fill="url(#starGlow)" opacity="${(hint ? 0.35 : 0.55 + 0.45 * s).toFixed(2)}"/>` +
         `<circle class="halo" cx="${x}" cy="${y}" r="${halo}"/>` +
         `<circle class="core" cx="${x}" cy="${y}" r="${core}"/>` +
-        (trips.length > 1
+        (trips.length > 1 && !hint
           ? `<text class="chrono-num" x="${lx}" y="${labelAbove ? y + labelGap + 22 : y - labelGap - 12}" text-anchor="middle">${String(num).padStart(2, "0")}</text>`
           : "") +
-        `<text class="star-title" x="${lx}" y="${labelAbove ? y - labelGap - 8 : y + labelGap + 16}" text-anchor="middle">${esc(t.title)}</text>` +
+        `<text class="star-title" x="${lx}" y="${labelAbove ? y - labelGap - 8 : y + labelGap + 16}" text-anchor="middle">${esc(trim(t.title, 20))}</text>` +
         sub;
       const go = () => {
         const target = document.querySelector(`.chapter[data-id="${t.id}"]`);
         if (target) {
-          document.querySelectorAll(".chapter").forEach((c) => c.classList.remove("hidden"));
-          filtersEl.querySelectorAll(".chip").forEach((c) => c.classList.toggle("active", c.dataset.id === "all"));
+          // behave exactly like tapping this trip's chip: show only that chapter,
+          // so lazy-loading images above can't push the scroll landing spot around
+          filtersEl.querySelectorAll(".chip").forEach((c) => c.classList.toggle("active", c.dataset.id === t.id));
+          document.querySelectorAll(".chapter").forEach((c) => c.classList.toggle("hidden", c.dataset.id !== t.id));
           revealVisible();
           target.scrollIntoView({ behavior: "smooth", block: "start" });
         }
