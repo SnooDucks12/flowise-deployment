@@ -223,6 +223,28 @@
   }
   .hero .add-btn[hidden] { display: none; }
 
+  .hero .cinema-btn {
+    margin-top: 0.9rem;
+    display: inline-block;
+    font-family: var(--sans);
+    font-weight: 400;
+    font-size: 0.8rem;
+    letter-spacing: 0.12em;
+    color: var(--ink-dim);
+    border: 1px solid var(--line);
+    border-radius: 99px;
+    padding: 0.6rem 1.4rem;
+    text-decoration: none;
+    animation: rise 1.2s var(--ease-out) both 1.45s;
+    transition: all 0.3s var(--ease-out);
+  }
+  .hero .cinema-btn:hover {
+    color: var(--ink);
+    border-color: var(--rose);
+    transform: translateY(-1px);
+  }
+  .hero .cinema-btn[hidden] { display: none; }
+
   @keyframes rise {
     from { opacity: 0; transform: translateY(28px); filter: blur(6px); }
     to   { opacity: 1; transform: translateY(0); filter: blur(0); }
@@ -748,6 +770,7 @@
     </div>
 
     <a class="add-btn" id="addBtn" href="upload" hidden>📸 add our memories</a>
+    <a class="cinema-btn" id="cinemaBtn" href="movies" hidden>🍿 meie kinoõhtud</a>
   </header>
 
   <!-- ================= CONSTELLATION ================= -->
@@ -1308,6 +1331,7 @@ fetch("api/trips", { method: "GET" })
     serverProtected = d.protected;
     document.getElementById("camBtn").hidden = false;
     document.getElementById("addBtn").hidden = false;
+    document.getElementById("cinemaBtn").hidden = false;
     enableEditing();
   })
   .catch(() => {}); // static hosting (no server) — extras stay hidden

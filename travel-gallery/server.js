@@ -424,6 +424,90 @@ app.get("/api/trips", async (req, res) => {
   res.json({ trips: dirs, protected: Boolean(UPLOAD_KEY) });
 });
 
+// ---------- the cinema diary 🍿 movies we saw, movies still waiting ----------
+const MOVIES_FILE = path.join(ROOT, "movies.json");
+const MOVIES_MEDIA = path.join(ROOT, "movies-media");
+
+function readMoviesLocal() { try { return JSON.parse(fs.readFileSync(MOVIES_FILE, "utf8")); } catch { return { movies: [] }; } }
+function writeMoviesLocal(d) { fs.writeFileSync(MOVIES_FILE, JSON.stringify(d, null, 1)); }
+const readMovies = () => (CLOUD ? spaces.loadMovies() : Promise.resolve(readMoviesLocal()));
+const writeMovies = (d) => (CLOUD ? spaces.saveMovies(d) : Promise.resolve(writeMoviesLocal(d)));
+const newMovieId = () => "m" + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36);
+
+app.get("/api/movies", async (req, res) => {
+  try { res.set("Cache-Control", "no-cache").json(await readMovies()); }
+  catch (e) { console.error("movies:", e); res.status(500).json({ error: "could not open the cinema" }); }
+});
+
+app.post("/api/movies", async (req, res) => {
+  if (!checkKey(req, res)) return;
+  const b = req.body || {};
+  const clean = (s, n) => String(s ?? "").trim().slice(0, n);
+  try {
+    const data = await readMovies();
+    if (!Array.isArray(data.movies)) data.movies = [];
+    if (b.op === "add") {
+      const title = clean(b.title, 120);
+      if (!title) return res.status(400).json({ error: "the film needs a name" });
+      data.movies.push({
+        id: newMovieId(),
+        title,
+        status: b.status === "watched" ? "watched" : "wish",
+        note: clean(b.note, 500),
+        image: "",
+        addedAt: new Date().toISOString(),
+        watchedAt: b.status === "watched" ? new Date().toISOString() : null,
+      });
+    } else if (b.op === "edit" || b.op === "remove") {
+      const i = data.movies.findIndex((m) => m.id === b.id);
+      if (i < 0) return res.status(404).json({ error: "film not found" });
+      if (b.op === "remove") {
+        data.movies.splice(i, 1);
+      } else {
+        const m = data.movies[i];
+        if (b.title !== undefined && clean(b.title, 120)) m.title = clean(b.title, 120);
+        if (b.note !== undefined) m.note = clean(b.note, 500);
+        if (b.image === "") m.image = ""; // un-pin the still
+        if (b.status === "watched" && m.status !== "watched") { m.status = "watched"; m.watchedAt = new Date().toISOString(); }
+        if (b.status === "wish" && m.status !== "wish") { m.status = "wish"; m.watchedAt = null; }
+      }
+    } else {
+      return res.status(400).json({ error: "unknown op" });
+    }
+    await writeMovies(data);
+    res.json(data);
+  } catch (e) { console.error("movies:", e); res.status(500).json({ error: "saving failed — try again" }); }
+});
+
+// a still from the night we watched it — one picture per film, replace anytime
+app.post("/api/movies/still", (req, res) => {
+  if (!checkKey(req, res)) return;
+  cloudUpload.single("photo")(req, res, async (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+    if (!req.file) return res.status(400).json({ error: "no picture received" });
+    try {
+      const data = await readMovies();
+      const m = (data.movies || []).find((x) => x.id === req.query.id);
+      if (!m) return res.status(404).json({ error: "film not found" });
+      if (CLOUD) {
+        m.image = await spaces.putMovieStill(req.file.buffer, req.file.mimetype, m.id);
+      } else {
+        fs.mkdirSync(MOVIES_MEDIA, { recursive: true });
+        let out = req.file.buffer;
+        try {
+          const sharp = require("sharp");
+          out = await sharp(req.file.buffer).rotate().resize(1800, 1800, { fit: "inside" }).jpeg({ quality: 84 }).toBuffer();
+        } catch {}
+        const name = `${m.id}-${Date.now().toString(36)}.jpg`;
+        fs.writeFileSync(path.join(MOVIES_MEDIA, name), out);
+        m.image = `movies-media/${name}`;
+      }
+      await writeMovies(data);
+      res.json(data);
+    } catch (e) { console.error("movie still:", e); res.status(500).json({ error: "upload failed — try again" }); }
+  });
+});
+
 // in cloud mode the manifest is served live from Spaces (index.html is unchanged)
 if (CLOUD) {
   app.get("/photos.js", async (req, res) => {
@@ -444,6 +528,7 @@ if (CLOUD) {
 
 // ---------- pages ----------
 app.get("/upload", (req, res) => res.sendFile(path.join(ROOT, "upload.html")));
+app.get("/movies", (req, res) => { res.set("Cache-Control", "no-cache"); res.sendFile(path.join(ROOT, "movies.html")); });
 app.use(express.static(ROOT, {
   extensions: ["html"],
   setHeaders(res, filePath) {

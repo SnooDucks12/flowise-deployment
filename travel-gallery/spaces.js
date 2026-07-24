@@ -466,4 +466,31 @@ async function setSince(date) {
   return true;
 }
 
-module.exports = { enabled, init, addPhotos, autoAddPhotos, renderPhotosJs, listTrips, loadManifest, saveManifest, put, publicBase, editTrip, editPhoto, setSince, forwardGeocode };
+// ---------- the cinema diary 🍿 (lives beside the manifest, private) ----------
+async function loadMovies() {
+  const { GetObjectCommand } = require("@aws-sdk/client-s3");
+  try {
+    const r = await s3.send(new GetObjectCommand({ Bucket: BUCKET(), Key: "data/movies.json" }));
+    return JSON.parse(await r.Body.transformToString());
+  } catch (e) {
+    if (e.name === "NoSuchKey" || e.$metadata?.httpStatusCode === 404) return { movies: [] };
+    throw e;
+  }
+}
+
+async function saveMovies(data) {
+  await put("data/movies.json", JSON.stringify(data, null, 1), "application/json", false);
+}
+
+// a still from a movie night — resized like gallery photos, key is unique so the CDN never serves a stale one
+async function putMovieStill(buffer, mimetype, id) {
+  let out = buffer;
+  if (sharp) {
+    try { out = await sharp(buffer).rotate().resize(WEB_MAX, WEB_MAX, { fit: "inside" }).jpeg({ quality: 84 }).toBuffer(); } catch {}
+  }
+  const key = `movies/${id}-${Date.now().toString(36)}.jpg`;
+  await put(key, out, "image/jpeg");
+  return `${publicBase()}/${encodeURI(key)}`;
+}
+
+module.exports = { enabled, init, addPhotos, autoAddPhotos, renderPhotosJs, listTrips, loadManifest, saveManifest, put, publicBase, editTrip, editPhoto, setSince, forwardGeocode, loadMovies, saveMovies, putMovieStill };
