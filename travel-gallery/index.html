@@ -1166,7 +1166,7 @@ lb.addEventListener("touchend", (e) => {
     const compact = mq.matches;
     const W = compact ? 640 : 1000;
     const mapH = Math.round((Math.max(placed.length, 1) <= 2 ? 340 : placed.length <= 4 ? 440 : 540) * (compact ? 0.92 : 1));
-    const H = mapH + (unplaced.length ? 70 : 0);
+    const H = mapH + (unplaced.length ? (unplaced.length > 1 ? 122 : 70) : 0);
     const PAD = compact ? 74 : 96;
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
 
@@ -1195,8 +1195,9 @@ lb.addEventListener("touchend", (e) => {
       ];
       pts = placed.map((t) => project(t.coords));
 
-      // two journeys to the same city must not stack — spread coincident stars
-      const MIN_D = 30;
+      // neighbouring cities must not stack — spread close stars far enough
+      // apart that their labels stay readable (Tallinn vs Helsinki!)
+      const MIN_D = compact ? 58 : 72;
       for (let pass = 0; pass < 3; pass++) {
         for (let i = 0; i < pts.length; i++) {
           for (let j = i + 1; j < pts.length; j++) {
@@ -1237,26 +1238,14 @@ lb.addEventListener("touchend", (e) => {
       return `M${a[0].toFixed(1)},${a[1].toFixed(1)} Q${(mx - (dy / len) * lift).toFixed(1)},${(my + (dx / len) * lift).toFixed(1)} ${b[0].toFixed(1)},${b[1].toFixed(1)}`;
     }
 
-    // the line of our story — a soft curve through the placed stars, oldest → newest
+    // the line of our story — a soft arc from star to star, oldest → newest.
+    // Each leg bows to the left of its direction of travel, so flying out
+    // and coming back opens into a loop instead of drawing the same line twice.
     function storyPath(p) {
       if (p.length < 2) return "";
-      if (p.length === 2) return arc(p[0], p[1]);
-      const clampC = (c, from, segLen) => {
-        const vx = c[0] - from[0], vy = c[1] - from[1];
-        const l = Math.sqrt(vx * vx + vy * vy);
-        const max = segLen * 0.38;
-        if (l <= max || l === 0) return c;
-        return [from[0] + (vx / l) * max, from[1] + (vy / l) * max];
-      };
-      let d = `M${p[0][0].toFixed(1)},${p[0][1].toFixed(1)}`;
-      for (let i = 0; i < p.length - 1; i++) {
-        const p0 = p[Math.max(0, i - 1)], p1 = p[i], p2 = p[i + 1], p3 = p[Math.min(p.length - 1, i + 2)];
-        const seg = Math.sqrt((p2[0] - p1[0]) ** 2 + (p2[1] - p1[1]) ** 2) || 1;
-        const c1 = clampC([p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6], p1, seg);
-        const c2 = clampC([p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6], p2, seg);
-        d += ` C${c1[0].toFixed(1)},${c1[1].toFixed(1)} ${c2[0].toFixed(1)},${c2[1].toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
-      }
-      return d;
+      const parts = [];
+      for (let i = 0; i < p.length - 1; i++) parts.push(arc(p[i], p[i + 1]));
+      return parts.join(" ");
     }
     if (pts.length > 1) {
       const d = storyPath(pts);
@@ -1271,8 +1260,12 @@ lb.addEventListener("touchend", (e) => {
     }
 
     // stars still waiting for a home stay on the line too — a softer thread
-    // drifts from the newest placed star down to each of them in turn
-    const upts = unplaced.map((t, k) => [(W * (k + 1)) / (unplaced.length + 1), H - 34]);
+    // drifts from the newest placed star down to each of them in turn.
+    // With several waiting, they take two rows so their names never collide.
+    const upts = unplaced.map((t, k) => [
+      (W * (k + 1)) / (unplaced.length + 1),
+      unplaced.length > 1 && k % 2 === 0 ? H - 86 : H - 34,
+    ]);
     if (upts.length && pts.length) {
       let from = pts[pts.length - 1];
       for (const p of upts) {
@@ -1289,19 +1282,26 @@ lb.addEventListener("touchend", (e) => {
     const shine = (t) => Math.sqrt(t.photos.length / maxCount);
     const clampX = (x) => Math.min(W - 60, Math.max(60, x));
 
-    // crowded neighbours take opposite label sides so titles never pile up
+    // crowded neighbours point their labels AWAY from each other:
+    // the upper star of a close pair labels upward, the lower one downward
     const sides = pts.map(([, y]) => y > mapH / 2);
     for (let i = 0; i < pts.length; i++) {
       for (let j = i + 1; j < pts.length; j++) {
-        if (sides[i] === sides[j] &&
-            Math.hypot(pts[i][0] - pts[j][0], pts[i][1] - pts[j][1]) < 95) {
-          sides[j] = !sides[j];
+        if (Math.hypot(pts[i][0] - pts[j][0], pts[i][1] - pts[j][1]) < 95) {
+          const upper = pts[i][1] <= pts[j][1] ? i : j;
+          const lower = upper === i ? j : i;
+          sides[upper] = true;  // label above, away from the pair
+          sides[lower] = false; // label below, away from the pair
         }
       }
     }
+    // …and when stars sit really close, their little place captions come off
+    // entirely — the title alone keeps the corner readable
+    const crowded = pts.map((a, i) =>
+      pts.some((b, j) => j !== i && Math.hypot(a[0] - b[0], a[1] - b[1]) < 78));
 
     let starIndex = 0;
-    function addStar(t, x, y, labelAbove, hint) {
+    function addStar(t, x, y, labelAbove, hint, noSub) {
       const s = shine(t);
       const core = (3.5 + 5 * s).toFixed(1);
       const halo = (7 + 9 * s).toFixed(1);
@@ -1320,7 +1320,7 @@ lb.addEventListener("touchend", (e) => {
       const trim = (str, n) => (str.length > n ? str.slice(0, n - 1).trimEnd() + "…" : str);
       const sub = hint
         ? `<text class="place-lbl place-hint" x="${lx}" y="${y + labelGap + 16}" text-anchor="middle">tap ✎ to give it a place</text>`
-        : (t.place || t.location
+        : (!noSub && (t.place || t.location)
           ? `<text class="place-lbl" x="${lx}" y="${labelAbove ? y - labelGap - 22 : y + labelGap + 30}" text-anchor="middle">${esc(trim(t.place || t.location, 28))}</text>`
           : "");
       g.innerHTML =
@@ -1349,7 +1349,7 @@ lb.addEventListener("touchend", (e) => {
       svg.appendChild(g);
     }
 
-    placed.forEach((t, i) => addStar(t, pts[i][0], pts[i][1], sides[i], false));
+    placed.forEach((t, i) => addStar(t, pts[i][0], pts[i][1], sides[i], false, crowded[i]));
     // placeless trips drift along the bottom, waiting for a home
     unplaced.forEach((t, k) => addStar(t, upts[k][0], upts[k][1], true, true));
   }
