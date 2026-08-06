@@ -1160,13 +1160,22 @@ lb.addEventListener("touchend", (e) => {
     // EVERY trip gets a star. Placed trips sit at their true coordinates;
     // placeless trips drift in a band at the bottom until they get a home.
     // The trips array is already story-ordered (oldest first, by first photo).
-    const placed = trips.filter(isPlaced);
-    const unplaced = trips.filter((t) => !isPlaced(t));
+    // tiny journeys (fewer than MIN_STAR moments) don't earn their own star —
+    // they gather into one soft "unsorted" star so the sky stays calm
+    const MIN_STAR = 3;
+    const starry = trips.filter((t) => t.photos.length >= MIN_STAR);
+    const small = trips.filter((t) => t.photos.length < MIN_STAR);
+    const pile = small.length
+      ? { id: "__pile__", title: "unsorted moments", photos: small.flatMap((t) => t.photos), smallIds: small.map((t) => t.id) }
+      : null;
+    const placed = starry.filter(isPlaced);
+    const unplaced = starry.filter((t) => !isPlaced(t));
+    const bottomCount = unplaced.length + (pile ? 1 : 0);
 
     const compact = mq.matches;
     const W = compact ? 640 : 1000;
     const mapH = Math.round((Math.max(placed.length, 1) <= 2 ? 340 : placed.length <= 4 ? 440 : 540) * (compact ? 0.92 : 1));
-    const H = mapH + (unplaced.length ? (unplaced.length > 1 ? 122 : 70) : 0);
+    const H = mapH + (bottomCount ? (bottomCount > 1 ? 122 : 70) : 0);
     const PAD = compact ? 74 : 96;
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
 
@@ -1261,10 +1270,12 @@ lb.addEventListener("touchend", (e) => {
 
     // stars still waiting for a home stay on the line too — a softer thread
     // drifts from the newest placed star down to each of them in turn.
-    // With several waiting, they take two rows so their names never collide.
-    const upts = unplaced.map((t, k) => [
-      (W * (k + 1)) / (unplaced.length + 1),
-      unplaced.length > 1 && k % 2 === 0 ? H - 86 : H - 34,
+    // The gathered "unsorted" star joins them at the end of the row, and
+    // with several waiting they take two rows so names never collide.
+    const bottomStars = unplaced.concat(pile ? [pile] : []);
+    const upts = bottomStars.map((t, k) => [
+      (W * (k + 1)) / (bottomStars.length + 1),
+      bottomStars.length > 1 && k % 2 === 0 ? H - 86 : H - 34,
     ]);
     if (upts.length && pts.length) {
       let from = pts[pts.length - 1];
@@ -1278,7 +1289,7 @@ lb.addEventListener("touchend", (e) => {
     }
 
     // big trips shine brighter — star size scales with how many moments live there
-    const maxCount = Math.max(...trips.map((t) => t.photos.length), 1);
+    const maxCount = Math.max(...starry.map((t) => t.photos.length), pile ? pile.photos.length : 0, 1);
     const shine = (t) => Math.sqrt(t.photos.length / maxCount);
     const clampX = (x) => Math.min(W - 60, Math.max(60, x));
 
@@ -1306,7 +1317,7 @@ lb.addEventListener("touchend", (e) => {
       const core = (3.5 + 5 * s).toFixed(1);
       const halo = (7 + 9 * s).toFixed(1);
       const glow = (20 + 36 * s).toFixed(0);
-      const num = trips.indexOf(t) + 1; // story number, shared with the chapters below
+      const num = starry.indexOf(t) + 1; // story number among the real stars
       const g = document.createElementNS(NS, "g");
       g.setAttribute("class", "const-star");
       g.setAttribute("role", "link");
@@ -1318,8 +1329,11 @@ lb.addEventListener("touchend", (e) => {
       const lx = clampX(x);
       // long titles get gently trimmed on the map — the full name lives in the tooltip & chapter
       const trim = (str, n) => (str.length > n ? str.slice(0, n - 1).trimEnd() + "…" : str);
+      const hintText = t.smallIds
+        ? `${t.photos.length} little moment${t.photos.length === 1 ? "" : "s"}, gathered`
+        : "tap ✎ to give it a place";
       const sub = hint
-        ? `<text class="place-lbl place-hint" x="${lx}" y="${y + labelGap + 16}" text-anchor="middle">tap ✎ to give it a place</text>`
+        ? `<text class="place-lbl place-hint" x="${lx}" y="${y + labelGap + 16}" text-anchor="middle">${esc(hintText)}</text>`
         : (!noSub && (t.place || t.location)
           ? `<text class="place-lbl" x="${lx}" y="${labelAbove ? y - labelGap - 22 : y + labelGap + 30}" text-anchor="middle">${esc(trim(t.place || t.location, 28))}</text>`
           : "");
@@ -1328,12 +1342,22 @@ lb.addEventListener("touchend", (e) => {
         `<circle cx="${x}" cy="${y}" r="${glow}" fill="url(#starGlow)" opacity="${(hint ? 0.35 : 0.55 + 0.45 * s).toFixed(2)}"/>` +
         `<circle class="halo" cx="${x}" cy="${y}" r="${halo}"/>` +
         `<circle class="core" cx="${x}" cy="${y}" r="${core}"/>` +
-        (trips.length > 1 && !hint
+        (starry.length > 1 && !hint
           ? `<text class="chrono-num" x="${lx}" y="${labelAbove ? y + labelGap + 22 : y - labelGap - 12}" text-anchor="middle">${String(num).padStart(2, "0")}</text>`
           : "") +
         `<text class="star-title" x="${lx}" y="${labelAbove ? y - labelGap - 8 : y + labelGap + 16}" text-anchor="middle">${esc(trim(t.title, 20))}</text>` +
         sub;
       const go = () => {
+        // the gathered star opens all of its little chapters at once
+        if (t.smallIds) {
+          const first = document.querySelector(`.chapter[data-id="${t.smallIds[0]}"]`);
+          if (!first) return;
+          filtersEl.querySelectorAll(".chip").forEach((c) => c.classList.remove("active"));
+          document.querySelectorAll(".chapter").forEach((c) => c.classList.toggle("hidden", !t.smallIds.includes(c.dataset.id)));
+          revealVisible();
+          first.scrollIntoView({ behavior: "smooth", block: "start" });
+          return;
+        }
         const target = document.querySelector(`.chapter[data-id="${t.id}"]`);
         if (target) {
           // behave exactly like tapping this trip's chip: show only that chapter,
@@ -1350,8 +1374,8 @@ lb.addEventListener("touchend", (e) => {
     }
 
     placed.forEach((t, i) => addStar(t, pts[i][0], pts[i][1], sides[i], false, crowded[i]));
-    // placeless trips drift along the bottom, waiting for a home
-    unplaced.forEach((t, k) => addStar(t, upts[k][0], upts[k][1], true, true));
+    // placeless trips (and the gathered pile) drift along the bottom
+    bottomStars.forEach((t, k) => addStar(t, upts[k][0], upts[k][1], true, true));
   }
 
   build();
