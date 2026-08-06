@@ -982,6 +982,15 @@ function daysOfUs(since) {
 }
 if (SINCE) {
   animateNum(document.getElementById("statDays"), daysOfUs(SINCE));
+  // the page can live open for days as a home-screen app — tick the counter
+  // over at Tallinn midnight without needing a reload
+  let shownDays = daysOfUs(SINCE);
+  const tickDays = () => {
+    const d = daysOfUs(SINCE);
+    if (d !== shownDays) { shownDays = d; document.getElementById("statDays").textContent = d.toLocaleString(); }
+  };
+  setInterval(tickDays, 60000);
+  document.addEventListener("visibilitychange", tickDays);
 } else {
   document.getElementById("statDays").textContent = "∞";
 }
