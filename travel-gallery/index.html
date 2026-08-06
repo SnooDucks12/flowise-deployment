@@ -589,26 +589,25 @@
   .skymap .const-star:focus-visible { outline: none; }
   .skymap .const-star:focus-visible circle.halo { stroke: var(--gold); opacity: 0.8; }
   .skymap .const-star text {
-    font-family: var(--sans);
-    font-size: 12px;
-    font-weight: 400;
-    letter-spacing: 0.22em;
-    text-transform: uppercase;
-    fill: var(--ink-dim);
+    font-family: var(--serif);
+    font-size: 15px;
+    font-weight: 460;
+    letter-spacing: 0.02em;
+    fill: var(--ink);
     transition: fill 0.3s ease;
     paint-order: stroke;
     stroke: var(--bg);
-    stroke-width: 3px;
+    stroke-width: 3.5px;
     stroke-linejoin: round;
   }
   .skymap .const-star:hover text { fill: var(--rose); }
   .skymap .const-star .place-lbl {
     font-family: var(--serif);
     font-style: italic;
-    font-size: 10px;
-    letter-spacing: 0.04em;
-    text-transform: none;
-    fill: color-mix(in srgb, var(--ink-dim) 70%, transparent);
+    font-weight: 400;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    fill: color-mix(in srgb, var(--ink-dim) 80%, transparent);
   }
   .skymap .const-star .place-hint {
     fill: color-mix(in srgb, var(--gold) 75%, transparent);
@@ -617,8 +616,7 @@
     font-family: var(--serif);
     font-style: italic;
     font-size: 11px;
-    letter-spacing: 0.12em;
-    text-transform: none;
+    letter-spacing: 0.08em;
     fill: color-mix(in srgb, var(--gold) 65%, transparent);
   }
   @keyframes halo-pulse {
@@ -638,9 +636,9 @@
   }
   /* phone: the viewBox narrows to 640, so type must grow to stay readable */
   @media (max-width: 640px) {
-    .skymap .const-star text { font-size: 16px; }
-    .skymap .const-star .place-lbl { font-size: 13px; }
-    .skymap .const-star .chrono-num { font-size: 13px; }
+    .skymap .const-star text { font-size: 20px; }
+    .skymap .const-star .place-lbl { font-size: 15px; }
+    .skymap .const-star .chrono-num { font-size: 14px; }
   }
 
   /* ---------- footer ---------- */
@@ -1332,10 +1330,13 @@ lb.addEventListener("touchend", (e) => {
       const hintText = t.smallIds
         ? `${t.photos.length} little moment${t.photos.length === 1 ? "" : "s"}, gathered`
         : "tap ✎ to give it a place";
+      // a caption that just repeats the title ("Finland" under "Finland🇫🇮") says nothing — skip it
+      const plain = (str) => String(str || "").replace(/[^\p{L}\p{N} ]/gu, "").trim().toLowerCase();
+      const place = t.place || t.location;
       const sub = hint
         ? `<text class="place-lbl place-hint" x="${lx}" y="${y + labelGap + 16}" text-anchor="middle">${esc(hintText)}</text>`
-        : (!noSub && (t.place || t.location)
-          ? `<text class="place-lbl" x="${lx}" y="${labelAbove ? y - labelGap - 22 : y + labelGap + 30}" text-anchor="middle">${esc(trim(t.place || t.location, 28))}</text>`
+        : (!noSub && place && plain(place) !== plain(t.title)
+          ? `<text class="place-lbl" x="${lx}" y="${labelAbove ? y - labelGap - 22 : y + labelGap + 30}" text-anchor="middle">${esc(trim(place, 28))}</text>`
           : "");
       g.innerHTML =
         `<title>${esc(t.title)} · ${t.photos.length} moment${t.photos.length === 1 ? "" : "s"}</title>` +
