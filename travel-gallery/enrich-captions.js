@@ -1,0 +1,138 @@
+#!/usr/bin/env node
+/* ============================================================
+   Wanderlight AI caption enricher (optional) ✨
+   ------------------------------------------------------------
+   Looks at every photo in photos.js that has no caption (or a
+   boring filename-derived one) and asks Claude to actually LOOK
+   at the image, then writes back:
+     • a short, romantic-but-not-cheesy caption
+     • a mood/theme tag (e.g. "golden hour", "city lights")
+
+   Your hand-written captions are never touched — only photos
+   whose caption is empty or still looks like a filename.
+
+   Setup (one time):
+     npm install @anthropic-ai/sdk sharp
+     export ANTHROPIC_API_KEY=sk-ant-...
+
+   Run:
+     node enrich-captions.js           # only uncaptioned photos
+     node enrich-captions.js --all     # redo every photo
+   ============================================================ */
+const fs = require("fs");
+const path = require("path");
+
+const ROOT = __dirname;
+const OUT = path.join(ROOT, "photos.js");
+const REDO_ALL = process.argv.includes("--all");
+
+let Anthropic, sharp = null;
+try { Anthropic = require("@anthropic-ai/sdk"); }
+catch { console.error("Run `npm install @anthropic-ai/sdk` first."); process.exit(1); }
+try { sharp = require("sharp"); } catch {}
+
+const client = new Anthropic(); // reads ANTHROPIC_API_KEY / an `ant auth login` profile
+
+const CAPTION_SCHEMA = {
+  type: "object",
+  properties: {
+    caption: {
+      type: "string",
+      description: "A short caption for a couple's travel gallery, lowercase, max 8 words, warm and evocative, never cheesy or generic. e.g. 'the night the sky turned green'",
+    },
+    theme: {
+      type: "string",
+      description: "One short mood/theme tag, lowercase, e.g. 'golden hour', 'city lights', 'mountain air', 'blue water'",
+    },
+  },
+  required: ["caption", "theme"],
+  additionalProperties: false,
+};
+
+function looksLikeFilename(caption) {
+  if (!caption) return true;
+  return /^\s*$/.test(caption) || /\b(img|dsc|pxl|photo|image)\b|\d{4,}/i.test(caption);
+}
+
+async function imageToBase64(abs) {
+  const ext = path.extname(abs).toLowerCase();
+  if (sharp) {
+    // downscale for the API — plenty of detail for captioning, tiny cost
+    const buf = await sharp(abs).rotate().resize(1024, 1024, { fit: "inside" }).jpeg({ quality: 80 }).toBuffer();
+    return { data: buf.toString("base64"), media_type: "image/jpeg" };
+  }
+  const media = ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : ext === ".gif" ? "image/gif" : "image/jpeg";
+  const buf = fs.readFileSync(abs);
+  if (buf.length > 4.5 * 1024 * 1024) return null; // too big without sharp to resize
+  return { data: buf.toString("base64"), media_type: media };
+}
+
+(async () => {
+  const src = fs.readFileSync(OUT, "utf8");
+  const sandbox = {};
+  new Function("window", src)(sandbox);
+  const trips = sandbox.TRIPS || [];
+
+  const work = [];
+  for (const t of trips) {
+    for (const p of t.photos) {
+      if (p.src.startsWith("demo-photos/")) continue; // skip demo art
+      if (REDO_ALL || looksLikeFilename(p.caption)) work.push({ t, p });
+    }
+  }
+  if (!work.length) {
+    console.log("Nothing to caption — every photo already has a hand-written caption. 💛");
+    return;
+  }
+  console.log(`Captioning ${work.length} photo(s) with Claude…`);
+
+  let done = 0;
+  for (const { t, p } of work) {
+    const abs = path.join(ROOT, p.full || p.src);
+    if (!fs.existsSync(abs)) { console.log(`  skip (missing): ${p.src}`); continue; }
+    const img = await imageToBase64(abs);
+    if (!img) { console.log(`  skip (too large, install sharp): ${p.src}`); continue; }
+
+    try {
+      const response = await client.messages.create({
+        model: "claude-opus-4-8",
+        max_tokens: 300,
+        output_config: { format: { type: "json_schema", schema: CAPTION_SCHEMA } },
+        messages: [{
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: img.media_type, data: img.data } },
+            {
+              type: "text",
+              text: `This photo is from a trip called "${t.title}" (${t.location || ""}, ${t.date || ""}) in a travel photo gallery belonging to a couple, Liina and Ralf. Write a caption and theme tag for it.`,
+            },
+          ],
+        }],
+      });
+      const out = JSON.parse(response.content.find((b) => b.type === "text").text);
+      p.caption = out.caption;
+      p.theme = out.theme;
+      done++;
+      console.log(`  ✓ ${path.basename(p.src)} → "${out.caption}" [${out.theme}]`);
+    } catch (err) {
+      if (err instanceof Anthropic.RateLimitError) {
+        console.log("  rate limited — waiting 30s…");
+        await new Promise((r) => setTimeout(r, 30000));
+      } else {
+        console.log(`  ✗ ${path.basename(p.src)}: ${err.message}`);
+      }
+    }
+  }
+
+  // write back, preserving header + TOGETHER_SINCE
+  const sinceM = src.match(/TOGETHER_SINCE\s*=\s*"([^"]+)"/);
+  const body = `/* Generated by generate-manifest.js, enriched by enrich-captions.js.
+   Your captions, quotes and notes are PRESERVED across re-runs. */
+
+window.TOGETHER_SINCE = ${JSON.stringify(sinceM ? sinceM[1] : "2023-06-01")};
+
+window.TRIPS = ${JSON.stringify(trips, null, 2)};
+`;
+  fs.writeFileSync(OUT, body);
+  console.log(`✨ Done — ${done} caption(s) written to photos.js.`);
+})();
